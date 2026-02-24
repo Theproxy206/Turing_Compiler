@@ -125,7 +125,7 @@ TOKEN : {
 }
 
 TOKEN : { < DIR: "R" | "L" | "S" > }
-TOKEN : { < SYMBOL: "0" | "1" | (["A"-"Z"])* > }
+TOKEN : { < SYMBOL: "0" | "1" | ["A"-"Z"] > }
 
 TOKEN : {
     < LBRACE: "{" > | < RBRACE: "}" >
