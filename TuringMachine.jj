@@ -1,0 +1,361 @@
+options {
+    STATIC = false;
+    DEBUG_PARSER = false;
+}
+
+PARSER_BEGIN(TuringParser)
+import java.util.*;
+
+public class TuringParser {
+
+    public List<CompilerError> errors = new ArrayList<>();
+
+    public static class CompilerError {
+        String type;
+        String message;
+        int line;
+        int column;
+
+        public CompilerError(String type, String message, int line, int column) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+        }
+
+        @Override
+        public String toString() {
+            // Se ajustó la puntuación para coincidir con tu formato exacto
+            return "Error " + type + " en " + line + "," + column + ". " + message;
+        }
+    }
+
+    private void reportError(String type, String message, Token t) {
+        errors.add(new CompilerError(type, message, t.beginLine, t.beginColumn));
+    }
+
+    public static void main(String[] args) {
+        try {
+            java.io.InputStream in;
+
+            if (args.length == 1) {
+                System.out.println("Leyendo archivo: " + args[0]);
+                in = new java.io.FileInputStream(args[0]);
+            } else {
+                System.out.println("Leyendo desde consola...");
+                in = System.in;
+            }
+
+            TuringParser parser = new TuringParser(in);
+            parser.Program();
+
+            System.out.println("\n--------------------------------");
+
+            if (parser.errors.isEmpty()) {
+                System.out.println("✔ COMPILACIÓN EXITOSA (0 errores)");
+            } else {
+                System.out.println("✖ SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
+                for (CompilerError e : parser.errors) {
+                    System.out.println(e);
+                }
+            }
+
+        } catch (Exception e) {
+            System.out.println(e);
+        }
+    }
+
+    /* ================= RECUPERACIÓN ================= */
+
+    void recover(int... syncTokens) {
+        Token t = getToken(1);
+
+        if (t.kind == EOF || isKind(t.kind, syncTokens)) return;
+
+        while (true) {
+            getNextToken();
+            t = getToken(1);
+            if (t.kind == EOF || isKind(t.kind, syncTokens)) break;
+        }
+    }
+
+    boolean isKind(int kind, int[] kinds) {
+        for (int k : kinds) if (k == kind) return true;
+        return false;
+    }
+
+    void error_skip_config() {
+        Token t = getToken(1);
+
+        while (t.kind != EOF &&
+               t.kind != STATES &&
+               t.kind != SYMBOLS &&
+               t.kind != START &&
+               t.kind != BLANK &&
+               t.kind != FINALS &&
+               t.kind != RBRACE) {
+
+            getNextToken();
+            t = getToken(1);
+        }
+    }
+}
+PARSER_END(TuringParser)
+
+/* ================= LÉXICO ================= */
+
+SKIP : {
+    " " | "\t" | "\r" | "\n"
+  | <"//" (~["\n","\r"])* ("\n"|"\r"|"\r\n")>
+}
+
+TOKEN : {
+    < MACHINE: "machine" >
+  | < CONFIG: "config" >
+  | < STATES: "states" >
+  | < SYMBOLS: "symbols" >
+  | < START: "start" >
+  | < BLANK: "blank" >
+  | < FINALS: "finals" >
+  | < STATE: "state" >
+  | < ON: "on" >
+  | < WRITE: "write" >
+  | < MOVE: "move" >
+  | < NEXT: "next" >
+}
+
+TOKEN : { < DIR: "R" | "L" | "S" > }
+TOKEN : { < SYMBOL: "0" | "1" | (["A"-"Z"])* > }
+
+TOKEN : {
+    < LBRACE: "{" > | < RBRACE: "}" >
+  | < LBRACKET: "[" > | < RBRACKET: "]" >
+  | < COMMA: "," > | < COLON: ":" >
+}
+
+TOKEN : { < ID: ["a"-"z"] (["a"-"z","0"-"9","_"])* > }
+TOKEN : { < NAME: ["a"-"z","A"-"Z"] (["a"-"z","A"-"Z","0"-"9","_"])*> }
+
+// Token comodín para atrapar errores léxicos
+TOKEN : { < UNEXPECTED_CHAR: ~[] > }
+
+/* ================= SINTÁCTICO ================= */
+
+void Program() : {}
+{
+    try {
+        <MACHINE>
+        <NAME>
+        <LBRACE>
+    } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inválido '" + t.image + "' encontrado en la declaración. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Error al declarar la máquina. Se esperaba la palabra reservada \"machine\" seguida de un nombre (ID) seguido de '{'.",
+                t
+            );
+        }
+
+        recover(CONFIG, STATE);
+    }
+
+    ConfigBlock()
+
+    (
+        try {
+            StateBlock()
+        } catch (ParseException e) {
+            Token t = getToken(1);
+            reportError(
+                "Sintáctico",
+                "Error en la definición del estado. Consejo: Verifica que la estructura 'state ID { ... }' esté correcta. Se omitirá hasta el siguiente bloque válido.",
+                t
+            );
+            recover(STATE, RBRACE);
+        }
+    )*
+
+    <RBRACE> <EOF>
+}
+
+void ConfigBlock() : {}
+{
+    try {
+        <CONFIG> <LBRACE>
+    } catch (ParseException e){
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado en la declaración. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Error al declarar el bloque de definición. Se esperaba la palabra reservada \"config\" seguido de {",
+                t
+            );
+        }
+
+        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+    }
+
+    ConfigEntry()
+
+    try {
+        <RBRACE>
+    } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado en la declaración. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Error al declarar la máquina. Necesitas cerrar el bloque con \"}\"",
+                t
+            );
+        }
+
+        recover(STATE, RBRACE);
+    }
+}
+
+void ConfigEntry() : {}
+{
+    try { <STATES> <COLON> IdList() <COMMA> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba una declaración de los estados de la maquina. Revisa la sintaxis",
+                t
+            );
+        }
+
+        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+    }
+    try { <SYMBOLS> <COLON> SymbolsList() <COMMA> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba una declaración de los simbolos de cinta. Revisa la sintaxis",
+                t
+            );
+        }
+
+        recover(START, BLANK, FINALS, RBRACE, STATE);
+    }
+    try { <START> <COLON> <ID> <COMMA> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la declaración del estado inicial. Revisa la sintaxis",
+                t
+            );
+        }
+
+        recover(BLANK, FINALS, RBRACE, STATE);
+    }
+    try { <BLANK> <COLON> <SYMBOL> <COMMA> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la declaración del simbolo blanco. Revisa la sintaxis",
+                t
+            );
+        }
+
+        recover(FINALS, RBRACE, STATE);
+    }
+    try { <FINALS> <COLON> IdList() <COMMA> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+        reportError(
+            "Léxico",
+            "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+            t
+        );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la declaración de los estados finales. Revisa la sintaxis",
+                t
+            );
+        }
+
+        recover(RBRACE, STATE);
+    }
+}
+
+void StateBlock() : {}
+{
+    <STATE> <ID> <LBRACE>
+        ( TransitionBlock() )*
+    <RBRACE>
+}
+
+void TransitionBlock() : {}
+{
+    <ON> <SYMBOL> <COLON> <LBRACE>
+        <WRITE> <COLON> <SYMBOL> <COMMA>
+        <MOVE>  <COLON> <DIR>    <COMMA>
+        <NEXT>  <COLON> <ID> ( <COMMA> )?
+    <RBRACE>
+}
+
+void IdList() : {}
+{
+    <LBRACKET> ( <ID> ( <COMMA> <ID> )* )? <RBRACKET>
+}
+
+void SymbolsList() : {}
+{
+    <LBRACKET> ( <SYMBOL> ( <COMMA> <SYMBOL> )* )? <RBRACKET>
+}
