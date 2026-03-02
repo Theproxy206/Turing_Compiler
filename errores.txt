@@ -1,4 +1,4 @@
-machine Hola {
+machine Hola:
     config {
         states: [a1, q1],
         symbols: [0, 1, X, Y, Z, B],
@@ -7,7 +7,13 @@ machine Hola {
         finals: [q1],
     }
 
-    state q0 {
+    state Q0 ->
         on 0: { write: 0, move: R, next: q1 }
-    }
-}
+    ;
+
+    state q1 ->
+        on 1: { write: 1, move: R, next: q1 }
+        on 0: { write: 0, move: R, next: q1 }
+    ;
+
+end

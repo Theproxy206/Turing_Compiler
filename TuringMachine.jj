@@ -122,6 +122,7 @@ TOKEN : {
   | < WRITE: "write" >
   | < MOVE: "move" >
   | < NEXT: "next" >
+  | < END: "end" >
 }
 
 TOKEN : { < DIR: "R" | "L" | "S" > }
@@ -131,6 +132,7 @@ TOKEN : {
     < LBRACE: "{" > | < RBRACE: "}" >
   | < LBRACKET: "[" > | < RBRACKET: "]" >
   | < COMMA: "," > | < COLON: ":" >
+  | < PRODUCE: "->"> | <SEMICOLON: ";">
 }
 
 TOKEN : { < ID: ["a"-"z"] (["a"-"z","0"-"9","_"])* > }
@@ -146,7 +148,7 @@ void Program() : {}
     try {
         <MACHINE>
         <NAME>
-        <LBRACE>
+        <COLON>
     } catch (ParseException e) {
         Token t = getToken(1);
 
@@ -170,20 +172,27 @@ void Program() : {}
     ConfigBlock()
 
     (
-        try {
-            StateBlock()
-        } catch (ParseException e) {
-            Token t = getToken(1);
-            reportError(
-                "Sintáctico",
-                "Error en la definición del estado. Consejo: Verifica que la estructura 'state ID { ... }' esté correcta. Se omitirá hasta el siguiente bloque válido.",
-                t
-            );
-            recover(STATE, RBRACE);
-        }
+        StateBlock()
     )*
 
-    <RBRACE> <EOF>
+    try { <END> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inválido '" + t.image + "' encontrado en la declaración. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Error al declarar la máquina. Cierra la declaración con la palabra reservada 'end'",
+                t
+            );
+        }
+    }
+    <EOF>
 }
 
 void ConfigBlock() : {}
@@ -207,7 +216,7 @@ void ConfigBlock() : {}
             );
         }
 
-        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE, END);
     }
 
     ConfigEntry()
@@ -231,7 +240,7 @@ void ConfigBlock() : {}
             );
         }
 
-        recover(STATE, RBRACE);
+        recover(STATE, END);
     }
 }
 
@@ -254,7 +263,7 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE, END);
     }
     try { <SYMBOLS> <COLON> SymbolsList() <COMMA> } catch (ParseException e) {
         Token t = getToken(1);
@@ -273,7 +282,7 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(START, BLANK, FINALS, RBRACE, STATE);
+        recover(START, BLANK, FINALS, RBRACE, STATE, END);
     }
     try { <START> <COLON> <ID> <COMMA> } catch (ParseException e) {
         Token t = getToken(1);
@@ -292,7 +301,7 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(BLANK, FINALS, RBRACE, STATE);
+        recover(BLANK, FINALS, RBRACE, STATE, END);
     }
     try { <BLANK> <COLON> <SYMBOL> <COMMA> } catch (ParseException e) {
         Token t = getToken(1);
@@ -311,7 +320,7 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(FINALS, RBRACE, STATE);
+        recover(FINALS, RBRACE, STATE, END);
     }
     try { <FINALS> <COLON> IdList() <COMMA> } catch (ParseException e) {
         Token t = getToken(1);
@@ -330,24 +339,54 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(RBRACE, STATE);
+        recover(RBRACE, STATE, END);
     }
 }
 
 void StateBlock() : {}
 {
-    <STATE> <ID> <LBRACE>
-        ( TransitionBlock() )*
-    <RBRACE>
+    try {<STATE> <ID> <PRODUCE> (TransitionBlock())+ <SEMICOLON> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la declaración de transición. Usa la palabra reservada 'state' y el identificador adecuado",
+                t
+            );
+        }
+
+        recover(STATE, END);
+    }
 }
 
 void TransitionBlock() : {}
 {
-    <ON> <SYMBOL> <COLON> <LBRACE>
-        <WRITE> <COLON> <SYMBOL> <COMMA>
-        <MOVE>  <COLON> <DIR>    <COMMA>
-        <NEXT>  <COLON> <ID> ( <COMMA> )?
-    <RBRACE>
+    try {<ON> <SYMBOL> <COLON> <LBRACE> <WRITE> <COLON> <SYMBOL> <COMMA> <MOVE> <COLON> <DIR> <COMMA> <NEXT> <COLON> <ID> (<COMMA>)? <RBRACE> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inváido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la transición. Revisa la documentación",
+                t
+            );
+        }
+
+        recover(SEMICOLON, END);
+    }
 }
 
 void IdList() : {}
