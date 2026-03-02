@@ -79,7 +79,7 @@ public class TuringParser {
         int line;
         int column;
 
-        public CompilerError(String type, String message, int line, int column) {
+        public CompilerWarning(String type, String message, int line, int column) {
             this.type = type;
             this.message = message;
             this.line = line;
@@ -88,12 +88,12 @@ public class TuringParser {
 
         @Override
         public String toString() {
-            return "Precaución " + type + " en " + line + "," + column + ". " + message;
+            return "Advertencia en " + line + "," + column + ". " + message;
         }
     }
 
     private void reportWarning(String type, String message, Token t) {
-        errors.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
+        warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
     }
 
     public static void main(String[] args) {
@@ -118,6 +118,14 @@ public class TuringParser {
             } else {
                 System.out.println("✖ SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
                 for (CompilerError e : parser.errors) {
+                    System.out.println(e);
+                }
+            }
+
+            if (! parser.warnings.isEmpty()) {
+                System.out.println("\n--------------------------------");
+                System.out.println("SE ENCONTRARON " + parser.warnings.size() + " ADVERTENCIAS:");
+                for (CompilerWarning e : parser.warnings) {
                     System.out.println(e);
                 }
             }
@@ -430,8 +438,7 @@ void StateBlock() : { Token stateToken; }
                 if (!symbolTable.containsKey(stateToken.image)) {
                     reportError("Semántico", "El estado '" + stateToken.image + "' no está declarado en 'states'.", stateToken);
                 } else if (symbolTable.get(stateToken.image).isFinal) {
-                    // TODO: Agregar reportWarning para este caso
-                    reportError("Semántico", "El estado '" + stateToken.image + "' es final y no debería tener transiciones.", stateToken);
+                    reportWarning("Semántico", "El estado '" + stateToken.image + "' es final y no debería tener transiciones.", stateToken);
                 }
             }
             <PRODUCE>

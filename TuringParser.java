@@ -18,6 +18,7 @@ public class TuringParser implements TuringParserConstants {
 
     public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
+    public List<CompilerWarning> warnings = new ArrayList<>();
 
     private void registerSymbol(Token t, String type) {
         if (symbolTable.containsKey(t.image)) {
@@ -68,6 +69,29 @@ public class TuringParser implements TuringParserConstants {
         errors.add(new CompilerError(type, message, t.beginLine, t.beginColumn));
     }
 
+    public static class CompilerWarning {
+        String type;
+        String message;
+        int line;
+        int column;
+
+        public CompilerWarning(String type, String message, int line, int column) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+        }
+
+        @Override
+        public String toString() {
+            return "Advertencia en " + line + "," + column + ". " + message;
+        }
+    }
+
+    private void reportWarning(String type, String message, Token t) {
+        warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
+    }
+
     public static void main(String[] args) {
         try {
             java.io.InputStream in;
@@ -90,6 +114,14 @@ public class TuringParser implements TuringParserConstants {
             } else {
                 System.out.println("\u2716 SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
                 for (CompilerError e : parser.errors) {
+                    System.out.println(e);
+                }
+            }
+
+            if (! parser.warnings.isEmpty()) {
+                System.out.println("\n--------------------------------");
+                System.out.println("SE ENCONTRARON " + parser.warnings.size() + " ADVERTENCIAS:");
+                for (CompilerWarning e : parser.warnings) {
                     System.out.println(e);
                 }
             }
@@ -392,8 +424,7 @@ t = getToken(1);
 if (!symbolTable.containsKey(stateToken.image)) {
                     reportError("Sem\u00e1ntico", "El estado '" + stateToken.image + "' no est\u00e1 declarado en 'states'.", stateToken);
                 } else if (symbolTable.get(stateToken.image).isFinal) {
-                    // TODO: Agregar reportWarning para este caso
-                    reportError("Sem\u00e1ntico", "El estado '" + stateToken.image + "' es final y no deber\u00eda tener transiciones.", stateToken);
+                    reportWarning("Sem\u00e1ntico", "El estado '" + stateToken.image + "' es final y no deber\u00eda tener transiciones.", stateToken);
                 }
       jj_consume_token(PRODUCE);
       label_2:
