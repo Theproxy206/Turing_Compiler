@@ -322,7 +322,7 @@ void ConfigEntry() : {}
 
         recover(FINALS, RBRACE, STATE, END);
     }
-    try { <FINALS> <COLON> IdList() <COMMA> } catch (ParseException e) {
+    try { <FINALS> <COLON> IdList() (<COMMA>)? } catch (ParseException e) {
         Token t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
