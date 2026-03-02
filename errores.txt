@@ -1,14 +1,15 @@
-machine Hola:
+machine Hol@:
     config {
-        states: [a1, q1],
+        states: [q8, q9],
         symbols: [0, 1, X, Y, Z, B],
-        start: q0,
-        blank: B,
-        finals: [q1],
+        start: q2,
+        blank: A,
+        finals: [q3],
     }
 
-    state Q0 ->
+    state q2 ->
         on 0: { write: 0, move: R, next: q1 }
+        on A: { write: 0, move: R, next: q1 }
     ;
 
     state q1 ->

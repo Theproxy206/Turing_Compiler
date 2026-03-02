@@ -3,8 +3,46 @@
 import java.util.*;
 
 public class TuringParser implements TuringParserConstants {
+    public static class SymbolInfo {
+        String name;
+        String type; // "ESTADO" o "SÍMBOLO"
+        public boolean isInitial = false;
+        public boolean isFinal = false;
+        public boolean isBlank = false;
 
+        public SymbolInfo(String name, String type) {
+            this.name = name;
+            this.type = type;
+        }
+    }
+
+    public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
+
+    private void registerSymbol(Token t, String type) {
+        if (symbolTable.containsKey(t.image)) {
+            reportError("Sem\u00e1ntico", "El identificador '" + t.image + "' ya fue declarado previamente como " + symbolTable.get(t.image).type + ". Consejo: Usa nombres \u00fanicos para cada entidad.", t);
+        } else {
+            symbolTable.put(t.image, new SymbolInfo(t.image, type));
+        }
+    }
+
+    public void printSymbolTable() {
+        System.out.println("\n------------------------------------------------------------");
+        System.out.println("              TABLA DE S\u00cdMBOLOS (Turing Machine)");
+        System.out.println("------------------------------------------------------------");
+        System.out.printf("%-15s | %-10s | %-20s\n", "IDENTIFICADOR", "TIPO", "ATRIBUTOS");
+        System.out.println("------------------------------------------------------------");
+        for (SymbolInfo info : symbolTable.values()) {
+            List<String> attrs = new ArrayList<>();
+            if (info.isInitial) attrs.add("INICIAL");
+            if (info.isFinal) attrs.add("FINAL");
+            if (info.isBlank) attrs.add("BLANCO");
+            String attrStr = attrs.isEmpty() ? "-" : attrs.toString();
+            System.out.printf("%-15s | %-10s | %-20s\n", info.name, info.type, attrStr);
+        }
+        System.out.println("------------------------------------------------------------");
+    }
 
     public static class CompilerError {
         String type;
@@ -156,6 +194,7 @@ Token t = getToken(1);
         }
     }
     jj_consume_token(0);
+if(errors.isEmpty()) printSymbolTable();
 }
 
   final public void ConfigBlock() throws ParseException {
@@ -205,14 +244,14 @@ Token t = getToken(1);
     }
 }
 
-  final public void ConfigEntry() throws ParseException {
+  final public void ConfigEntry() throws ParseException {Token t;
     try {
       jj_consume_token(STATES);
       jj_consume_token(COLON);
-      IdList();
+      IdList("ESTADO");
       jj_consume_token(COMMA);
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -233,10 +272,10 @@ Token t = getToken(1);
     try {
       jj_consume_token(SYMBOLS);
       jj_consume_token(COLON);
-      SymbolsList();
+      SymbolsList("SIMBOLO");
       jj_consume_token(COMMA);
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -257,10 +296,15 @@ Token t = getToken(1);
     try {
       jj_consume_token(START);
       jj_consume_token(COLON);
-      jj_consume_token(ID);
+      t = jj_consume_token(ID);
       jj_consume_token(COMMA);
+if (!symbolTable.containsKey(t.image)) {
+                  reportError("Sem\u00e1ntico", "El estado inicial '" + t.image + "' no ha sido declarado en la lista 'states'. Consejo: Decl\u00e1ralo primero en [].", t);
+            } else {
+                symbolTable.get(t.image).isInitial = true;
+            }
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -281,10 +325,15 @@ Token t = getToken(1);
     try {
       jj_consume_token(BLANK);
       jj_consume_token(COLON);
-      jj_consume_token(SYMBOL);
+      t = jj_consume_token(SYMBOL);
       jj_consume_token(COMMA);
+if (!symbolTable.containsKey(t.image)) {
+                reportError("Sem\u00e1ntico", "El s\u00edmbolo blanco '" + t.image + "' no existe en 'symbols'. Consejo: Agr\u00e9galo a la lista de s\u00edmbolos permitidos.", t);
+            } else {
+                symbolTable.get(t.image).isBlank = true;
+            }
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -305,7 +354,7 @@ Token t = getToken(1);
     try {
       jj_consume_token(FINALS);
       jj_consume_token(COLON);
-      IdList();
+      FinalIdList();
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
       case COMMA:{
         jj_consume_token(COMMA);
@@ -316,7 +365,7 @@ Token t = getToken(1);
         ;
       }
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -336,14 +385,20 @@ Token t = getToken(1);
     }
 }
 
-  final public void StateBlock() throws ParseException {
+  final public void StateBlock() throws ParseException {Token stateToken;
     try {
       jj_consume_token(STATE);
-      jj_consume_token(ID);
+      stateToken = jj_consume_token(ID);
+if (!symbolTable.containsKey(stateToken.image)) {
+                    reportError("Sem\u00e1ntico", "El estado '" + stateToken.image + "' no est\u00e1 declarado en 'states'.", stateToken);
+                } else if (symbolTable.get(stateToken.image).isFinal) {
+                    // TODO: Agregar reportWarning para este caso
+                    reportError("Sem\u00e1ntico", "El estado '" + stateToken.image + "' es final y no deber\u00eda tener transiciones.", stateToken);
+                }
       jj_consume_token(PRODUCE);
       label_2:
       while (true) {
-        TransitionBlock();
+        TransitionBlock(stateToken.image);
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
         case ON:{
           ;
@@ -376,15 +431,15 @@ Token t = getToken(1);
     }
 }
 
-  final public void TransitionBlock() throws ParseException {
+  final public void TransitionBlock(String currentState) throws ParseException {Token readSym, writeSym, nextState;
     try {
       jj_consume_token(ON);
-      jj_consume_token(SYMBOL);
+      readSym = jj_consume_token(SYMBOL);
       jj_consume_token(COLON);
       jj_consume_token(LBRACE);
       jj_consume_token(WRITE);
       jj_consume_token(COLON);
-      jj_consume_token(SYMBOL);
+      writeSym = jj_consume_token(SYMBOL);
       jj_consume_token(COMMA);
       jj_consume_token(MOVE);
       jj_consume_token(COLON);
@@ -392,7 +447,18 @@ Token t = getToken(1);
       jj_consume_token(COMMA);
       jj_consume_token(NEXT);
       jj_consume_token(COLON);
-      jj_consume_token(ID);
+      nextState = jj_consume_token(ID);
+if (!symbolTable.containsKey(readSym.image)) {
+                    reportError("Sem\u00e1ntico", "El s\u00edmbolo a leer '" + readSym.image + "' no existe en 'symbols'.", readSym);
+                }
+
+                if (!symbolTable.containsKey(writeSym.image)) {
+                    reportError("Sem\u00e1ntico", "El s\u00edmbolo a escribir '" + writeSym.image + "' no existe en 'symbols'.", writeSym);
+                }
+
+                if (!symbolTable.containsKey(nextState.image)) {
+                    reportError("Sem\u00e1ntico", "El estado de destino '" + nextState.image + "' no est\u00e1 declarado.", nextState);
+                }
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
       case COMMA:{
         jj_consume_token(COMMA);
@@ -424,11 +490,12 @@ Token t = getToken(1);
     }
 }
 
-  final public void IdList() throws ParseException {
+  final public void IdList(String type) throws ParseException {Token t;
     jj_consume_token(LBRACKET);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case ID:{
-      jj_consume_token(ID);
+      t = jj_consume_token(ID);
+registerSymbol(t, type);
       label_3:
       while (true) {
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
@@ -441,7 +508,8 @@ Token t = getToken(1);
           break label_3;
         }
         jj_consume_token(COMMA);
-        jj_consume_token(ID);
+        t = jj_consume_token(ID);
+registerSymbol(t, type);
       }
       break;
       }
@@ -452,11 +520,12 @@ Token t = getToken(1);
     jj_consume_token(RBRACKET);
 }
 
-  final public void SymbolsList() throws ParseException {
+  final public void SymbolsList(String type) throws ParseException {Token t;
     jj_consume_token(LBRACKET);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case SYMBOL:{
-      jj_consume_token(SYMBOL);
+      t = jj_consume_token(SYMBOL);
+registerSymbol(t, type);
       label_4:
       while (true) {
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
@@ -469,12 +538,52 @@ Token t = getToken(1);
           break label_4;
         }
         jj_consume_token(COMMA);
-        jj_consume_token(SYMBOL);
+        t = jj_consume_token(SYMBOL);
+registerSymbol(t, type);
       }
       break;
       }
     default:
       jj_la1[7] = jj_gen;
+      ;
+    }
+    jj_consume_token(RBRACKET);
+}
+
+// Especial para marcar estados finales
+  final public void FinalIdList() throws ParseException {Token t;
+    jj_consume_token(LBRACKET);
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case ID:{
+      t = jj_consume_token(ID);
+if (symbolTable.containsKey(t.image)) {
+                symbolTable.get(t.image).isFinal = true;
+            } else {
+                reportError("Sem\u00e1ntico", "El estado final '" + t.image + "' no fue declarado en 'states'.", t);
+            }
+      label_5:
+      while (true) {
+        switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+        case COMMA:{
+          ;
+          break;
+          }
+        default:
+          jj_la1[8] = jj_gen;
+          break label_5;
+        }
+        jj_consume_token(COMMA);
+        t = jj_consume_token(ID);
+if (symbolTable.containsKey(t.image)) {
+                symbolTable.get(t.image).isFinal = true;
+            } else {
+                reportError("Sem\u00e1ntico", "El estado final '" + t.image + "' no fue declarado en 'states'.", t);
+            }
+      }
+      break;
+      }
+    default:
+      jj_la1[9] = jj_gen;
       ;
     }
     jj_consume_token(RBRACKET);
@@ -489,13 +598,13 @@ Token t = getToken(1);
   public Token jj_nt;
   private int jj_ntk;
   private int jj_gen;
-  final private int[] jj_la1 = new int[8];
+  final private int[] jj_la1 = new int[10];
   static private int[] jj_la1_0;
   static {
 	   jj_la1_init_0();
 	}
 	private static void jj_la1_init_0() {
-	   jj_la1_0 = new int[] {0x2000,0x2000000,0x4000,0x2000000,0x2000000,0x20000000,0x2000000,0x100000,};
+	   jj_la1_0 = new int[] {0x2000,0x2000000,0x4000,0x2000000,0x2000000,0x20000000,0x2000000,0x100000,0x2000000,0x20000000,};
 	}
 
   /** Constructor with InputStream. */
@@ -509,7 +618,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 8; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -523,7 +632,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 8; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Constructor. */
@@ -533,7 +642,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 8; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -551,7 +660,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 8; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Constructor with generated Token Manager. */
@@ -560,7 +669,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 8; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -569,7 +678,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 8; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   private Token jj_consume_token(int kind) throws ParseException {
@@ -625,7 +734,7 @@ Token t = getToken(1);
 	   la1tokens[jj_kind] = true;
 	   jj_kind = -1;
 	 }
-	 for (int i = 0; i < 8; i++) {
+	 for (int i = 0; i < 10; i++) {
 	   if (jj_la1[i] == jj_gen) {
 		 for (int j = 0; j < 32; j++) {
 		   if ((jj_la1_0[i] & (1<<j)) != 0) {
