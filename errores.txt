@@ -17,4 +17,8 @@ machine Hol@:
         on 1: { write: 1, move: R, next: q1 }
     ;
 
+    state q0 ->
+        on 0: { write: 0, move: R, next: q1 }
+    ;
+
 end

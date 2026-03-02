@@ -23,6 +23,8 @@ public class TuringParser {
     public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
     public List<CompilerWarning> warnings = new ArrayList<>();
+    public Set<String> definedStateBlocks = new HashSet<>();
+    public Set<String> definedTransitions = new HashSet<>();
 
     private void registerSymbol(Token t, String type) {
         if (symbolTable.containsKey(t.image)) {
@@ -440,6 +442,16 @@ void StateBlock() : { Token stateToken; }
                 } else if (symbolTable.get(stateToken.image).isFinal) {
                     reportWarning("Semántico", "El estado '" + stateToken.image + "' es final y no debería tener transiciones.", stateToken);
                 }
+
+                if (definedStateBlocks.contains(stateToken.image)) {
+                    reportWarning(
+                        "Semántico",
+                        "El estado '" + stateToken.image + "' ya tiene un bloque definido previamente. Consejo: Agrupa todas las transiciones ('on ...') de este estado en un solo bloque.",
+                        stateToken
+                    );
+                } else {
+                    definedStateBlocks.add(stateToken.image);
+                }
             }
             <PRODUCE>
             (TransitionBlock(stateToken.image))+
@@ -465,17 +477,24 @@ void StateBlock() : { Token stateToken; }
     }
 }
 
-void TransitionBlock(String currentState) : { Token readSym, writeSym, nextState; }
+void TransitionBlock(String currentState) : { Token readSym, writeSym, dirToken, nextState; }
 {
     try {
             <ON> readSym=<SYMBOL> <COLON> <LBRACE>
             <WRITE> <COLON> writeSym=<SYMBOL> <COMMA>
-            <MOVE> <COLON> <DIR> <COMMA>
+            <MOVE> <COLON> dirToken=<DIR> <COMMA>
             <NEXT> <COLON> nextState=<ID>
 
             {
                 if (!symbolTable.containsKey(readSym.image)) {
                     reportError("Semántico", "El símbolo a leer '" + readSym.image + "' no existe en 'symbols'.", readSym);
+                }
+
+                String transitionSignature = currentState + "-" + readSym.image;
+                if (definedTransitions.contains(transitionSignature)) {
+                    reportError("Semántico", "Ambigüedad detectada (No determinismo). El estado '" + currentState + "' ya tiene una acción definida cuando lee el símbolo '" + readSym.image + "'.", readSym);
+                } else {
+                    definedTransitions.add(transitionSignature);
                 }
 
                 if (!symbolTable.containsKey(writeSym.image)) {

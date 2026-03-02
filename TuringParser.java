@@ -19,6 +19,8 @@ public class TuringParser implements TuringParserConstants {
     public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
     public List<CompilerWarning> warnings = new ArrayList<>();
+    public Set<String> definedStateBlocks = new HashSet<>();
+    public Set<String> definedTransitions = new HashSet<>();
 
     private void registerSymbol(Token t, String type) {
         if (symbolTable.containsKey(t.image)) {
@@ -426,6 +428,16 @@ if (!symbolTable.containsKey(stateToken.image)) {
                 } else if (symbolTable.get(stateToken.image).isFinal) {
                     reportWarning("Sem\u00e1ntico", "El estado '" + stateToken.image + "' es final y no deber\u00eda tener transiciones.", stateToken);
                 }
+
+                if (definedStateBlocks.contains(stateToken.image)) {
+                    reportWarning(
+                        "Sem\u00e1ntico",
+                        "El estado '" + stateToken.image + "' ya tiene un bloque definido previamente. Consejo: Agrupa todas las transiciones ('on ...') de este estado en un solo bloque.",
+                        stateToken
+                    );
+                } else {
+                    definedStateBlocks.add(stateToken.image);
+                }
       jj_consume_token(PRODUCE);
       label_2:
       while (true) {
@@ -462,7 +474,7 @@ Token t = getToken(1);
     }
 }
 
-  final public void TransitionBlock(String currentState) throws ParseException {Token readSym, writeSym, nextState;
+  final public void TransitionBlock(String currentState) throws ParseException {Token readSym, writeSym, dirToken, nextState;
     try {
       jj_consume_token(ON);
       readSym = jj_consume_token(SYMBOL);
@@ -474,13 +486,20 @@ Token t = getToken(1);
       jj_consume_token(COMMA);
       jj_consume_token(MOVE);
       jj_consume_token(COLON);
-      jj_consume_token(DIR);
+      dirToken = jj_consume_token(DIR);
       jj_consume_token(COMMA);
       jj_consume_token(NEXT);
       jj_consume_token(COLON);
       nextState = jj_consume_token(ID);
 if (!symbolTable.containsKey(readSym.image)) {
                     reportError("Sem\u00e1ntico", "El s\u00edmbolo a leer '" + readSym.image + "' no existe en 'symbols'.", readSym);
+                }
+
+                String transitionSignature = currentState + "-" + readSym.image;
+                if (definedTransitions.contains(transitionSignature)) {
+                    reportError("Sem\u00e1ntico", "Ambig\u00fcedad detectada (No determinismo). El estado '" + currentState + "' ya tiene una acci\u00f3n definida cuando lee el s\u00edmbolo '" + readSym.image + "'.", readSym);
+                } else {
+                    definedTransitions.add(transitionSignature);
                 }
 
                 if (!symbolTable.containsKey(writeSym.image)) {
