@@ -33,27 +33,33 @@ public interface TuringParserConstants {
   /** RegularExpression Id. */
   int NEXT = 17;
   /** RegularExpression Id. */
-  int DIR = 18;
+  int END = 18;
   /** RegularExpression Id. */
-  int SYMBOL = 19;
+  int DIR = 19;
   /** RegularExpression Id. */
-  int LBRACE = 20;
+  int SYMBOL = 20;
   /** RegularExpression Id. */
-  int RBRACE = 21;
+  int LBRACE = 21;
   /** RegularExpression Id. */
-  int LBRACKET = 22;
+  int RBRACE = 22;
   /** RegularExpression Id. */
-  int RBRACKET = 23;
+  int LBRACKET = 23;
   /** RegularExpression Id. */
-  int COMMA = 24;
+  int RBRACKET = 24;
   /** RegularExpression Id. */
-  int COLON = 25;
+  int COMMA = 25;
   /** RegularExpression Id. */
-  int ID = 26;
+  int COLON = 26;
   /** RegularExpression Id. */
-  int NAME = 27;
+  int PRODUCE = 27;
   /** RegularExpression Id. */
-  int UNEXPECTED_CHAR = 28;
+  int SEMICOLON = 28;
+  /** RegularExpression Id. */
+  int ID = 29;
+  /** RegularExpression Id. */
+  int NAME = 30;
+  /** RegularExpression Id. */
+  int UNEXPECTED_CHAR = 31;
 
   /** Lexical state. */
   int DEFAULT = 0;
@@ -78,6 +84,7 @@ public interface TuringParserConstants {
     "\"write\"",
     "\"move\"",
     "\"next\"",
+    "\"end\"",
     "<DIR>",
     "<SYMBOL>",
     "\"{\"",
@@ -86,6 +93,8 @@ public interface TuringParserConstants {
     "\"]\"",
     "\",\"",
     "\":\"",
+    "\"->\"",
+    "\";\"",
     "<ID>",
     "<NAME>",
     "<UNEXPECTED_CHAR>",

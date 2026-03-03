@@ -7,8 +7,49 @@ PARSER_BEGIN(TuringParser)
 import java.util.*;
 
 public class TuringParser {
+    public static class SymbolInfo {
+        String name;
+        String type; // "ESTADO" o "SÍMBOLO"
+        public boolean isInitial = false;
+        public boolean isFinal = false;
+        public boolean isBlank = false;
 
+        public SymbolInfo(String name, String type) {
+            this.name = name;
+            this.type = type;
+        }
+    }
+
+    public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
+    public List<CompilerWarning> warnings = new ArrayList<>();
+    public Set<String> definedStateBlocks = new HashSet<>();
+    public Set<String> definedTransitions = new HashSet<>();
+
+    private void registerSymbol(Token t, String type) {
+        if (symbolTable.containsKey(t.image)) {
+            reportError("Semántico", "El identificador '" + t.image + "' ya fue declarado previamente como " + symbolTable.get(t.image).type + ". Consejo: Usa nombres únicos para cada entidad.", t);
+        } else {
+            symbolTable.put(t.image, new SymbolInfo(t.image, type));
+        }
+    }
+
+    public void printSymbolTable() {
+        System.out.println("\n------------------------------------------------------------");
+        System.out.println("              TABLA DE SÍMBOLOS (Turing Machine)");
+        System.out.println("------------------------------------------------------------");
+        System.out.printf("%-15s | %-10s | %-20s\n", "IDENTIFICADOR", "TIPO", "ATRIBUTOS");
+        System.out.println("------------------------------------------------------------");
+        for (SymbolInfo info : symbolTable.values()) {
+            List<String> attrs = new ArrayList<>();
+            if (info.isInitial) attrs.add("INICIAL");
+            if (info.isFinal) attrs.add("FINAL");
+            if (info.isBlank) attrs.add("BLANCO");
+            String attrStr = attrs.isEmpty() ? "-" : attrs.toString();
+            System.out.printf("%-15s | %-10s | %-20s\n", info.name, info.type, attrStr);
+        }
+        System.out.println("------------------------------------------------------------");
+    }
 
     public static class CompilerError {
         String type;
@@ -34,6 +75,29 @@ public class TuringParser {
         errors.add(new CompilerError(type, message, t.beginLine, t.beginColumn));
     }
 
+    public static class CompilerWarning {
+        String type;
+        String message;
+        int line;
+        int column;
+
+        public CompilerWarning(String type, String message, int line, int column) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+        }
+
+        @Override
+        public String toString() {
+            return "Advertencia en " + line + "," + column + ". " + message;
+        }
+    }
+
+    private void reportWarning(String type, String message, Token t) {
+        warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
+    }
+
     public static void main(String[] args) {
         try {
             java.io.InputStream in;
@@ -56,6 +120,14 @@ public class TuringParser {
             } else {
                 System.out.println("✖ SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
                 for (CompilerError e : parser.errors) {
+                    System.out.println(e);
+                }
+            }
+
+            if (! parser.warnings.isEmpty()) {
+                System.out.println("\n--------------------------------");
+                System.out.println("SE ENCONTRARON " + parser.warnings.size() + " ADVERTENCIAS:");
+                for (CompilerWarning e : parser.warnings) {
                     System.out.println(e);
                 }
             }
@@ -122,6 +194,7 @@ TOKEN : {
   | < WRITE: "write" >
   | < MOVE: "move" >
   | < NEXT: "next" >
+  | < END: "end" >
 }
 
 TOKEN : { < DIR: "R" | "L" | "S" > }
@@ -131,6 +204,7 @@ TOKEN : {
     < LBRACE: "{" > | < RBRACE: "}" >
   | < LBRACKET: "[" > | < RBRACKET: "]" >
   | < COMMA: "," > | < COLON: ":" >
+  | < PRODUCE: "->"> | <SEMICOLON: ";">
 }
 
 TOKEN : { < ID: ["a"-"z"] (["a"-"z","0"-"9","_"])* > }
@@ -146,7 +220,7 @@ void Program() : {}
     try {
         <MACHINE>
         <NAME>
-        <LBRACE>
+        <COLON>
     } catch (ParseException e) {
         Token t = getToken(1);
 
@@ -170,20 +244,31 @@ void Program() : {}
     ConfigBlock()
 
     (
-        try {
-            StateBlock()
-        } catch (ParseException e) {
-            Token t = getToken(1);
-            reportError(
-                "Sintáctico",
-                "Error en la definición del estado. Consejo: Verifica que la estructura 'state ID { ... }' esté correcta. Se omitirá hasta el siguiente bloque válido.",
-                t
-            );
-            recover(STATE, RBRACE);
-        }
+        StateBlock()
     )*
 
-    <RBRACE> <EOF>
+    try { <END> } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inválido '" + t.image + "' encontrado en la declaración. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Error al declarar la máquina. Cierra la declaración con la palabra reservada 'end'",
+                t
+            );
+        }
+    }
+    <EOF>
+
+    {
+        if(errors.isEmpty()) printSymbolTable();
+    }
 }
 
 void ConfigBlock() : {}
@@ -207,7 +292,7 @@ void ConfigBlock() : {}
             );
         }
 
-        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE, END);
     }
 
     ConfigEntry()
@@ -231,14 +316,14 @@ void ConfigBlock() : {}
             );
         }
 
-        recover(STATE, RBRACE);
+        recover(STATE, END);
     }
 }
 
-void ConfigEntry() : {}
+void ConfigEntry() : { Token t; }
 {
-    try { <STATES> <COLON> IdList() <COMMA> } catch (ParseException e) {
-        Token t = getToken(1);
+    try { <STATES> <COLON> IdList("ESTADO") <COMMA> } catch (ParseException e) {
+        t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -254,10 +339,10 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE, END);
     }
-    try { <SYMBOLS> <COLON> SymbolsList() <COMMA> } catch (ParseException e) {
-        Token t = getToken(1);
+    try { <SYMBOLS> <COLON> SymbolsList("SIMBOLO") <COMMA> } catch (ParseException e) {
+        t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -273,10 +358,17 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(START, BLANK, FINALS, RBRACE, STATE);
+        recover(START, BLANK, FINALS, RBRACE, STATE, END);
     }
-    try { <START> <COLON> <ID> <COMMA> } catch (ParseException e) {
-        Token t = getToken(1);
+    try { <START> <COLON> t=<ID> <COMMA> {
+            if (!symbolTable.containsKey(t.image)) {
+                  reportError("Semántico", "El estado inicial '" + t.image + "' no ha sido declarado en la lista 'states'. Consejo: Decláralo primero en [].", t);
+            } else {
+                symbolTable.get(t.image).isInitial = true;
+            }
+        }
+    } catch (ParseException e) {
+        t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -292,10 +384,17 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(BLANK, FINALS, RBRACE, STATE);
+        recover(BLANK, FINALS, RBRACE, STATE, END);
     }
-    try { <BLANK> <COLON> <SYMBOL> <COMMA> } catch (ParseException e) {
-        Token t = getToken(1);
+    try { <BLANK> <COLON> t=<SYMBOL> <COMMA> {
+            if (!symbolTable.containsKey(t.image)) {
+                reportError("Semántico", "El símbolo blanco '" + t.image + "' no existe en 'symbols'. Consejo: Agrégalo a la lista de símbolos permitidos.", t);
+            } else {
+                symbolTable.get(t.image).isBlank = true;
+            }
+        }
+    } catch (ParseException e) {
+        t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -311,10 +410,10 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(FINALS, RBRACE, STATE);
+        recover(FINALS, RBRACE, STATE, END);
     }
-    try { <FINALS> <COLON> IdList() <COMMA> } catch (ParseException e) {
-        Token t = getToken(1);
+    try { <FINALS> <COLON> FinalIdList() (<COMMA>)? } catch (ParseException e) {
+        t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -330,32 +429,141 @@ void ConfigEntry() : {}
             );
         }
 
-        recover(RBRACE, STATE);
+        recover(RBRACE, STATE, END);
     }
 }
 
-void StateBlock() : {}
+void StateBlock() : { Token stateToken; }
 {
-    <STATE> <ID> <LBRACE>
-        ( TransitionBlock() )*
-    <RBRACE>
+    try {
+            <STATE> stateToken=<ID> {
+                if (!symbolTable.containsKey(stateToken.image)) {
+                    reportError("Semántico", "El estado '" + stateToken.image + "' no está declarado en 'states'.", stateToken);
+                } else if (symbolTable.get(stateToken.image).isFinal) {
+                    reportWarning("Semántico", "El estado '" + stateToken.image + "' es final y no debería tener transiciones.", stateToken);
+                }
+
+                if (definedStateBlocks.contains(stateToken.image)) {
+                    reportWarning(
+                        "Semántico",
+                        "El estado '" + stateToken.image + "' ya tiene un bloque definido previamente. Consejo: Agrupa todas las transiciones ('on ...') de este estado en un solo bloque.",
+                        stateToken
+                    );
+                } else {
+                    definedStateBlocks.add(stateToken.image);
+                }
+            }
+            <PRODUCE>
+            (TransitionBlock(stateToken.image))+
+            <SEMICOLON>
+    } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inválido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la declaración de transición. Usa la palabra reservada 'state' y el identificador adecuado",
+                t
+            );
+        }
+
+        recover(STATE, END);
+    }
 }
 
-void TransitionBlock() : {}
+void TransitionBlock(String currentState) : { Token readSym, writeSym, dirToken, nextState; }
 {
-    <ON> <SYMBOL> <COLON> <LBRACE>
-        <WRITE> <COLON> <SYMBOL> <COMMA>
-        <MOVE>  <COLON> <DIR>    <COMMA>
-        <NEXT>  <COLON> <ID> ( <COMMA> )?
-    <RBRACE>
+    try {
+            <ON> readSym=<SYMBOL> <COLON> <LBRACE>
+            <WRITE> <COLON> writeSym=<SYMBOL> <COMMA>
+            <MOVE> <COLON> dirToken=<DIR> <COMMA>
+            <NEXT> <COLON> nextState=<ID>
+
+            {
+                if (!symbolTable.containsKey(readSym.image)) {
+                    reportError("Semántico", "El símbolo a leer '" + readSym.image + "' no existe en 'symbols'.", readSym);
+                }
+
+                String transitionSignature = currentState + "-" + readSym.image;
+                if (definedTransitions.contains(transitionSignature)) {
+                    reportError("Semántico", "Ambigüedad detectada (No determinismo). El estado '" + currentState + "' ya tiene una acción definida cuando lee el símbolo '" + readSym.image + "'.", readSym);
+                } else {
+                    definedTransitions.add(transitionSignature);
+                }
+
+                if (!symbolTable.containsKey(writeSym.image)) {
+                    reportError("Semántico", "El símbolo a escribir '" + writeSym.image + "' no existe en 'symbols'.", writeSym);
+                }
+
+                if (!symbolTable.containsKey(nextState.image)) {
+                    reportError("Semántico", "El estado de destino '" + nextState.image + "' no está declarado.", nextState);
+                }
+            }
+
+            (<COMMA>)? <RBRACE>
+    } catch (ParseException e) {
+        Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "Léxico",
+                "Carácter inváido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, números y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sintáctico",
+                "Se esperaba la transición. Revisa la documentación",
+                t
+            );
+        }
+
+        recover(SEMICOLON, END);
+    }
 }
 
-void IdList() : {}
+void IdList(String type) : { Token t; }
 {
-    <LBRACKET> ( <ID> ( <COMMA> <ID> )* )? <RBRACKET>
+    <LBRACKET>
+    (
+        t=<ID> { registerSymbol(t, type); }
+        ( <COMMA> t=<ID> { registerSymbol(t, type); } )* )?
+    <RBRACKET>
 }
 
-void SymbolsList() : {}
+void SymbolsList(String type) : { Token t; }
 {
-    <LBRACKET> ( <SYMBOL> ( <COMMA> <SYMBOL> )* )? <RBRACKET>
+    <LBRACKET>
+    (
+        t=<SYMBOL> { registerSymbol(t, type); }
+        ( <COMMA> t=<SYMBOL> { registerSymbol(t, type); } )* )?
+    <RBRACKET>
+}
+
+// Especial para marcar estados finales
+void FinalIdList() : { Token t; }
+{
+    <LBRACKET>
+    (
+        t=<ID> {
+            if (symbolTable.containsKey(t.image)) {
+                symbolTable.get(t.image).isFinal = true;
+            } else {
+                reportError("Semántico", "El estado final '" + t.image + "' no fue declarado en 'states'.", t);
+            }
+        }
+        ( <COMMA> t=<ID> {
+             if (symbolTable.containsKey(t.image)) {
+                symbolTable.get(t.image).isFinal = true;
+            } else {
+                reportError("Semántico", "El estado final '" + t.image + "' no fue declarado en 'states'.", t);
+            }
+        } )* )?
+    <RBRACKET>
 }

@@ -3,8 +3,49 @@
 import java.util.*;
 
 public class TuringParser implements TuringParserConstants {
+    public static class SymbolInfo {
+        String name;
+        String type; // "ESTADO" o "SÍMBOLO"
+        public boolean isInitial = false;
+        public boolean isFinal = false;
+        public boolean isBlank = false;
 
+        public SymbolInfo(String name, String type) {
+            this.name = name;
+            this.type = type;
+        }
+    }
+
+    public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
+    public List<CompilerWarning> warnings = new ArrayList<>();
+    public Set<String> definedStateBlocks = new HashSet<>();
+    public Set<String> definedTransitions = new HashSet<>();
+
+    private void registerSymbol(Token t, String type) {
+        if (symbolTable.containsKey(t.image)) {
+            reportError("Sem\u00e1ntico", "El identificador '" + t.image + "' ya fue declarado previamente como " + symbolTable.get(t.image).type + ". Consejo: Usa nombres \u00fanicos para cada entidad.", t);
+        } else {
+            symbolTable.put(t.image, new SymbolInfo(t.image, type));
+        }
+    }
+
+    public void printSymbolTable() {
+        System.out.println("\n------------------------------------------------------------");
+        System.out.println("              TABLA DE S\u00cdMBOLOS (Turing Machine)");
+        System.out.println("------------------------------------------------------------");
+        System.out.printf("%-15s | %-10s | %-20s\n", "IDENTIFICADOR", "TIPO", "ATRIBUTOS");
+        System.out.println("------------------------------------------------------------");
+        for (SymbolInfo info : symbolTable.values()) {
+            List<String> attrs = new ArrayList<>();
+            if (info.isInitial) attrs.add("INICIAL");
+            if (info.isFinal) attrs.add("FINAL");
+            if (info.isBlank) attrs.add("BLANCO");
+            String attrStr = attrs.isEmpty() ? "-" : attrs.toString();
+            System.out.printf("%-15s | %-10s | %-20s\n", info.name, info.type, attrStr);
+        }
+        System.out.println("------------------------------------------------------------");
+    }
 
     public static class CompilerError {
         String type;
@@ -30,6 +71,29 @@ public class TuringParser implements TuringParserConstants {
         errors.add(new CompilerError(type, message, t.beginLine, t.beginColumn));
     }
 
+    public static class CompilerWarning {
+        String type;
+        String message;
+        int line;
+        int column;
+
+        public CompilerWarning(String type, String message, int line, int column) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+        }
+
+        @Override
+        public String toString() {
+            return "Advertencia en " + line + "," + column + ". " + message;
+        }
+    }
+
+    private void reportWarning(String type, String message, Token t) {
+        warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
+    }
+
     public static void main(String[] args) {
         try {
             java.io.InputStream in;
@@ -52,6 +116,14 @@ public class TuringParser implements TuringParserConstants {
             } else {
                 System.out.println("\u2716 SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
                 for (CompilerError e : parser.errors) {
+                    System.out.println(e);
+                }
+            }
+
+            if (! parser.warnings.isEmpty()) {
+                System.out.println("\n--------------------------------");
+                System.out.println("SE ENCONTRARON " + parser.warnings.size() + " ADVERTENCIAS:");
+                for (CompilerWarning e : parser.warnings) {
                     System.out.println(e);
                 }
             }
@@ -102,7 +174,7 @@ void Program() throws ParseException {
     try {
       jj_consume_token(MACHINE);
       jj_consume_token(NAME);
-      jj_consume_token(LBRACE);
+      jj_consume_token(COLON);
     } catch (ParseException e) {
 Token t = getToken(1);
 
@@ -134,20 +206,29 @@ Token t = getToken(1);
         jj_la1[0] = jj_gen;
         break label_1;
       }
-      try {
-        StateBlock();
-      } catch (ParseException e) {
+      StateBlock();
+    }
+    try {
+      jj_consume_token(END);
+    } catch (ParseException e) {
 Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
             reportError(
-                "Sint\u00e1ctico",
-                "Error en la definici\u00f3n del estado. Consejo: Verifica que la estructura 'state ID { ... }' est\u00e9 correcta. Se omitir\u00e1 hasta el siguiente bloque v\u00e1lido.",
+                "L\u00e9xico",
+                "Car\u00e1cter inv\u00e1lido '" + t.image + "' encontrado en la declaraci\u00f3n. Consejo: Los nombres solo pueden contener letras, n\u00fameros y guiones bajos.",
                 t
             );
-            recover(STATE, RBRACE);
-      }
+        } else {
+            reportError(
+                "Sint\u00e1ctico",
+                "Error al declarar la m\u00e1quina. Cierra la declaraci\u00f3n con la palabra reservada 'end'",
+                t
+            );
+        }
     }
-    jj_consume_token(RBRACE);
     jj_consume_token(0);
+if(errors.isEmpty()) printSymbolTable();
 }
 
   final public void ConfigBlock() throws ParseException {
@@ -171,7 +252,7 @@ Token t = getToken(1);
             );
         }
 
-        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+        recover(STATES, SYMBOLS, START, BLANK, FINALS, RBRACE, STATE, END);
     }
     ConfigEntry();
     try {
@@ -193,18 +274,18 @@ Token t = getToken(1);
             );
         }
 
-        recover(STATE, RBRACE);
+        recover(STATE, END);
     }
 }
 
-  final public void ConfigEntry() throws ParseException {
+  final public void ConfigEntry() throws ParseException {Token t;
     try {
       jj_consume_token(STATES);
       jj_consume_token(COLON);
-      IdList();
+      IdList("ESTADO");
       jj_consume_token(COMMA);
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -220,15 +301,15 @@ Token t = getToken(1);
             );
         }
 
-        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE);
+        recover(SYMBOLS, START, BLANK, FINALS, RBRACE, STATE, END);
     }
     try {
       jj_consume_token(SYMBOLS);
       jj_consume_token(COLON);
-      SymbolsList();
+      SymbolsList("SIMBOLO");
       jj_consume_token(COMMA);
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -244,15 +325,20 @@ Token t = getToken(1);
             );
         }
 
-        recover(START, BLANK, FINALS, RBRACE, STATE);
+        recover(START, BLANK, FINALS, RBRACE, STATE, END);
     }
     try {
       jj_consume_token(START);
       jj_consume_token(COLON);
-      jj_consume_token(ID);
+      t = jj_consume_token(ID);
       jj_consume_token(COMMA);
+if (!symbolTable.containsKey(t.image)) {
+                  reportError("Sem\u00e1ntico", "El estado inicial '" + t.image + "' no ha sido declarado en la lista 'states'. Consejo: Decl\u00e1ralo primero en [].", t);
+            } else {
+                symbolTable.get(t.image).isInitial = true;
+            }
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -268,15 +354,20 @@ Token t = getToken(1);
             );
         }
 
-        recover(BLANK, FINALS, RBRACE, STATE);
+        recover(BLANK, FINALS, RBRACE, STATE, END);
     }
     try {
       jj_consume_token(BLANK);
       jj_consume_token(COLON);
-      jj_consume_token(SYMBOL);
+      t = jj_consume_token(SYMBOL);
       jj_consume_token(COMMA);
+if (!symbolTable.containsKey(t.image)) {
+                reportError("Sem\u00e1ntico", "El s\u00edmbolo blanco '" + t.image + "' no existe en 'symbols'. Consejo: Agr\u00e9galo a la lista de s\u00edmbolos permitidos.", t);
+            } else {
+                symbolTable.get(t.image).isBlank = true;
+            }
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -292,15 +383,23 @@ Token t = getToken(1);
             );
         }
 
-        recover(FINALS, RBRACE, STATE);
+        recover(FINALS, RBRACE, STATE, END);
     }
     try {
       jj_consume_token(FINALS);
       jj_consume_token(COLON);
-      IdList();
-      jj_consume_token(COMMA);
+      FinalIdList();
+      switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+      case COMMA:{
+        jj_consume_token(COMMA);
+        break;
+        }
+      default:
+        jj_la1[1] = jj_gen;
+        ;
+      }
     } catch (ParseException e) {
-Token t = getToken(1);
+t = getToken(1);
 
         if (t.kind == UNEXPECTED_CHAR) {
         reportError(
@@ -316,63 +415,137 @@ Token t = getToken(1);
             );
         }
 
-        recover(RBRACE, STATE);
+        recover(RBRACE, STATE, END);
     }
 }
 
-  final public void StateBlock() throws ParseException {
-    jj_consume_token(STATE);
-    jj_consume_token(ID);
-    jj_consume_token(LBRACE);
-    label_2:
-    while (true) {
+  final public void StateBlock() throws ParseException {Token stateToken;
+    try {
+      jj_consume_token(STATE);
+      stateToken = jj_consume_token(ID);
+if (!symbolTable.containsKey(stateToken.image)) {
+                    reportError("Sem\u00e1ntico", "El estado '" + stateToken.image + "' no est\u00e1 declarado en 'states'.", stateToken);
+                } else if (symbolTable.get(stateToken.image).isFinal) {
+                    reportWarning("Sem\u00e1ntico", "El estado '" + stateToken.image + "' es final y no deber\u00eda tener transiciones.", stateToken);
+                }
+
+                if (definedStateBlocks.contains(stateToken.image)) {
+                    reportWarning(
+                        "Sem\u00e1ntico",
+                        "El estado '" + stateToken.image + "' ya tiene un bloque definido previamente. Consejo: Agrupa todas las transiciones ('on ...') de este estado en un solo bloque.",
+                        stateToken
+                    );
+                } else {
+                    definedStateBlocks.add(stateToken.image);
+                }
+      jj_consume_token(PRODUCE);
+      label_2:
+      while (true) {
+        TransitionBlock(stateToken.image);
+        switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+        case ON:{
+          ;
+          break;
+          }
+        default:
+          jj_la1[2] = jj_gen;
+          break label_2;
+        }
+      }
+      jj_consume_token(SEMICOLON);
+    } catch (ParseException e) {
+Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "L\u00e9xico",
+                "Car\u00e1cter inv\u00e1lido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, n\u00fameros y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sint\u00e1ctico",
+                "Se esperaba la declaraci\u00f3n de transici\u00f3n. Usa la palabra reservada 'state' y el identificador adecuado",
+                t
+            );
+        }
+
+        recover(STATE, END);
+    }
+}
+
+  final public void TransitionBlock(String currentState) throws ParseException {Token readSym, writeSym, dirToken, nextState;
+    try {
+      jj_consume_token(ON);
+      readSym = jj_consume_token(SYMBOL);
+      jj_consume_token(COLON);
+      jj_consume_token(LBRACE);
+      jj_consume_token(WRITE);
+      jj_consume_token(COLON);
+      writeSym = jj_consume_token(SYMBOL);
+      jj_consume_token(COMMA);
+      jj_consume_token(MOVE);
+      jj_consume_token(COLON);
+      dirToken = jj_consume_token(DIR);
+      jj_consume_token(COMMA);
+      jj_consume_token(NEXT);
+      jj_consume_token(COLON);
+      nextState = jj_consume_token(ID);
+if (!symbolTable.containsKey(readSym.image)) {
+                    reportError("Sem\u00e1ntico", "El s\u00edmbolo a leer '" + readSym.image + "' no existe en 'symbols'.", readSym);
+                }
+
+                String transitionSignature = currentState + "-" + readSym.image;
+                if (definedTransitions.contains(transitionSignature)) {
+                    reportError("Sem\u00e1ntico", "Ambig\u00fcedad detectada (No determinismo). El estado '" + currentState + "' ya tiene una acci\u00f3n definida cuando lee el s\u00edmbolo '" + readSym.image + "'.", readSym);
+                } else {
+                    definedTransitions.add(transitionSignature);
+                }
+
+                if (!symbolTable.containsKey(writeSym.image)) {
+                    reportError("Sem\u00e1ntico", "El s\u00edmbolo a escribir '" + writeSym.image + "' no existe en 'symbols'.", writeSym);
+                }
+
+                if (!symbolTable.containsKey(nextState.image)) {
+                    reportError("Sem\u00e1ntico", "El estado de destino '" + nextState.image + "' no est\u00e1 declarado.", nextState);
+                }
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case ON:{
-        ;
+      case COMMA:{
+        jj_consume_token(COMMA);
         break;
         }
       default:
-        jj_la1[1] = jj_gen;
-        break label_2;
+        jj_la1[3] = jj_gen;
+        ;
       }
-      TransitionBlock();
+      jj_consume_token(RBRACE);
+    } catch (ParseException e) {
+Token t = getToken(1);
+
+        if (t.kind == UNEXPECTED_CHAR) {
+            reportError(
+                "L\u00e9xico",
+                "Car\u00e1cter inv\u00e1ido '" + t.image + "' encontrado. Consejo: Los nombres solo pueden contener letras, n\u00fameros y guiones bajos.",
+                t
+            );
+        } else {
+            reportError(
+                "Sint\u00e1ctico",
+                "Se esperaba la transici\u00f3n. Revisa la documentaci\u00f3n",
+                t
+            );
+        }
+
+        recover(SEMICOLON, END);
     }
-    jj_consume_token(RBRACE);
 }
 
-  final public void TransitionBlock() throws ParseException {
-    jj_consume_token(ON);
-    jj_consume_token(SYMBOL);
-    jj_consume_token(COLON);
-    jj_consume_token(LBRACE);
-    jj_consume_token(WRITE);
-    jj_consume_token(COLON);
-    jj_consume_token(SYMBOL);
-    jj_consume_token(COMMA);
-    jj_consume_token(MOVE);
-    jj_consume_token(COLON);
-    jj_consume_token(DIR);
-    jj_consume_token(COMMA);
-    jj_consume_token(NEXT);
-    jj_consume_token(COLON);
-    jj_consume_token(ID);
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMA:{
-      jj_consume_token(COMMA);
-      break;
-      }
-    default:
-      jj_la1[2] = jj_gen;
-      ;
-    }
-    jj_consume_token(RBRACE);
-}
-
-  final public void IdList() throws ParseException {
+  final public void IdList(String type) throws ParseException {Token t;
     jj_consume_token(LBRACKET);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case ID:{
-      jj_consume_token(ID);
+      t = jj_consume_token(ID);
+registerSymbol(t, type);
       label_3:
       while (true) {
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
@@ -381,26 +554,28 @@ Token t = getToken(1);
           break;
           }
         default:
-          jj_la1[3] = jj_gen;
+          jj_la1[4] = jj_gen;
           break label_3;
         }
         jj_consume_token(COMMA);
-        jj_consume_token(ID);
+        t = jj_consume_token(ID);
+registerSymbol(t, type);
       }
       break;
       }
     default:
-      jj_la1[4] = jj_gen;
+      jj_la1[5] = jj_gen;
       ;
     }
     jj_consume_token(RBRACKET);
 }
 
-  final public void SymbolsList() throws ParseException {
+  final public void SymbolsList(String type) throws ParseException {Token t;
     jj_consume_token(LBRACKET);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case SYMBOL:{
-      jj_consume_token(SYMBOL);
+      t = jj_consume_token(SYMBOL);
+registerSymbol(t, type);
       label_4:
       while (true) {
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
@@ -409,16 +584,56 @@ Token t = getToken(1);
           break;
           }
         default:
-          jj_la1[5] = jj_gen;
+          jj_la1[6] = jj_gen;
           break label_4;
         }
         jj_consume_token(COMMA);
-        jj_consume_token(SYMBOL);
+        t = jj_consume_token(SYMBOL);
+registerSymbol(t, type);
       }
       break;
       }
     default:
-      jj_la1[6] = jj_gen;
+      jj_la1[7] = jj_gen;
+      ;
+    }
+    jj_consume_token(RBRACKET);
+}
+
+// Especial para marcar estados finales
+  final public void FinalIdList() throws ParseException {Token t;
+    jj_consume_token(LBRACKET);
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case ID:{
+      t = jj_consume_token(ID);
+if (symbolTable.containsKey(t.image)) {
+                symbolTable.get(t.image).isFinal = true;
+            } else {
+                reportError("Sem\u00e1ntico", "El estado final '" + t.image + "' no fue declarado en 'states'.", t);
+            }
+      label_5:
+      while (true) {
+        switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+        case COMMA:{
+          ;
+          break;
+          }
+        default:
+          jj_la1[8] = jj_gen;
+          break label_5;
+        }
+        jj_consume_token(COMMA);
+        t = jj_consume_token(ID);
+if (symbolTable.containsKey(t.image)) {
+                symbolTable.get(t.image).isFinal = true;
+            } else {
+                reportError("Sem\u00e1ntico", "El estado final '" + t.image + "' no fue declarado en 'states'.", t);
+            }
+      }
+      break;
+      }
+    default:
+      jj_la1[9] = jj_gen;
       ;
     }
     jj_consume_token(RBRACKET);
@@ -433,13 +648,13 @@ Token t = getToken(1);
   public Token jj_nt;
   private int jj_ntk;
   private int jj_gen;
-  final private int[] jj_la1 = new int[7];
+  final private int[] jj_la1 = new int[10];
   static private int[] jj_la1_0;
   static {
 	   jj_la1_init_0();
 	}
 	private static void jj_la1_init_0() {
-	   jj_la1_0 = new int[] {0x2000,0x4000,0x1000000,0x1000000,0x4000000,0x1000000,0x80000,};
+	   jj_la1_0 = new int[] {0x2000,0x2000000,0x4000,0x2000000,0x2000000,0x20000000,0x2000000,0x100000,0x2000000,0x20000000,};
 	}
 
   /** Constructor with InputStream. */
@@ -453,7 +668,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 7; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -467,7 +682,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 7; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Constructor. */
@@ -477,7 +692,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 7; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -495,7 +710,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 7; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Constructor with generated Token Manager. */
@@ -504,7 +719,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 7; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -513,7 +728,7 @@ Token t = getToken(1);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 7; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 10; i++) jj_la1[i] = -1;
   }
 
   private Token jj_consume_token(int kind) throws ParseException {
@@ -564,12 +779,12 @@ Token t = getToken(1);
   /** Generate ParseException. */
   public ParseException generateParseException() {
 	 jj_expentries.clear();
-	 boolean[] la1tokens = new boolean[29];
+	 boolean[] la1tokens = new boolean[32];
 	 if (jj_kind >= 0) {
 	   la1tokens[jj_kind] = true;
 	   jj_kind = -1;
 	 }
-	 for (int i = 0; i < 7; i++) {
+	 for (int i = 0; i < 10; i++) {
 	   if (jj_la1[i] == jj_gen) {
 		 for (int j = 0; j < 32; j++) {
 		   if ((jj_la1_0[i] & (1<<j)) != 0) {
@@ -578,7 +793,7 @@ Token t = getToken(1);
 		 }
 	   }
 	 }
-	 for (int i = 0; i < 29; i++) {
+	 for (int i = 0; i < 32; i++) {
 	   if (la1tokens[i]) {
 		 jj_expentry = new int[1];
 		 jj_expentry[0] = i;
