@@ -5,6 +5,9 @@ options {
 
 PARSER_BEGIN(TuringParser)
 import java.util.*;
+import java.io.PrintWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 
 public class TuringParser {
     public static class SymbolInfo {
@@ -20,11 +23,32 @@ public class TuringParser {
         }
     }
 
+    public static class Instruction {
+        String op;    // READ, WRITE, MOVE, GOTO, LABEL
+        String arg1;  // Símbolo o Dirección
+        String arg2;  // Condición (Símbolo leído)
+        String state; // Estado actual
+
+        public Instruction(String op, String arg1, String arg2, String state) {
+            this.op = op;
+            this.arg1 = arg1;
+            this.arg2 = arg2;
+            this.state = state;
+        }
+
+        @Override
+        public String toString() {
+            // Formato: OPERADOR arg1 arg2 state
+            return String.format("%-8s %-6s %-6s %-6s", op, arg1, arg2, state);
+        }
+    }
+
     public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
     public List<CompilerError> errors = new ArrayList<>();
     public List<CompilerWarning> warnings = new ArrayList<>();
     public Set<String> definedStateBlocks = new HashSet<>();
     public Set<String> definedTransitions = new HashSet<>();
+    public List<Instruction> intermediateCode = new ArrayList<>();
 
     private void registerSymbol(Token t, String type) {
         if (symbolTable.containsKey(t.image)) {
@@ -49,6 +73,10 @@ public class TuringParser {
             System.out.printf("%-15s | %-10s | %-20s\n", info.name, info.type, attrStr);
         }
         System.out.println("------------------------------------------------------------");
+    }
+
+    private void emit(String op, String a1, String a2, String s) {
+        intermediateCode.add(new Instruction(op, a1, a2, s));
     }
 
     public static class CompilerError {
@@ -98,25 +126,91 @@ public class TuringParser {
         warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
     }
 
-    public static void main(String[] args) {
-        try {
-            java.io.InputStream in;
-
-            if (args.length == 1) {
-                System.out.println("Leyendo archivo: " + args[0]);
-                in = new java.io.FileInputStream(args[0]);
-            } else {
-                System.out.println("Leyendo desde consola...");
-                in = System.in;
+    public void saveICGToFile(String filename) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
+            for (Instruction ins : intermediateCode) {
+                writer.println(ins);
             }
+            System.out.println("✔ Archivo de código intermedio generado: " + filename);
+        } catch (IOException e) {
+            System.err.println("Error al escribir el archivo .tir: " + e.getMessage());
+        }
+    }
 
-            TuringParser parser = new TuringParser(in);
+    private static void showHelp() {
+        System.out.println("USO: java TuringParser <archivo.tm> [opciones]");
+        System.out.println("\nOPCIONES:");
+        System.out.println("  -o <nombre>   Especificar nombre del archivo de salida.");
+        System.out.println("  -tir          Generar código intermedio (.tir)");
+        System.out.println("  -S            Generar código ensamblador (.asm)");
+        System.out.println("  -st           Mostrar tabla de símbolos en consola.");
+        System.out.println("  -O1           Activar optimización básica.");
+        System.out.println("  -v, --version Mostrar versión.");
+        System.out.println("  -h, --help    Mostrar esta ayuda.");
+    }
+
+    public static void main(String[] args) {
+        String inputFile = null;
+        String outputFile = null;
+        boolean emitTir = false;
+        boolean emitAsm = false;
+        boolean showST = false;
+        int optLevel = 0;
+
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "-h": case "--help":
+                    showHelp(); return;
+                case "-v": case "--version":
+                    System.out.println("TuringMachine Compiler (TMC) v0.1.1-alpha");
+                    System.out.println("Marzo 2026");
+                    return;
+                case "-tir":
+                    emitTir = true; break;
+                case "-S":
+                    emitAsm = true; break;
+                case "-st":
+                    showST = true; break;
+                case "-O1":
+                    optLevel = 1; break;
+                case "-o":
+                    if (i + 1 < args.length) outputFile = args[++i];
+                    break;
+                default:
+                    if (!args[i].startsWith("-")) inputFile = args[i];
+                    break;
+            }
+        }
+
+        if (inputFile == null) {
+            System.out.println("Error: No se especificó archivo de entrada. Usa -h para ayuda.");
+            return;
+        }
+
+        try {
+            TuringParser parser = new TuringParser(new java.io.FileInputStream(inputFile));
             parser.Program();
-
-            System.out.println("\n--------------------------------");
 
             if (parser.errors.isEmpty()) {
                 System.out.println("✔ COMPILACIÓN EXITOSA (0 errores)");
+
+                if (showST) parser.printSymbolTable();
+
+                if (optLevel > 0) {
+                    // Aquí llamaríamos a tu futuro optimizador
+                    System.out.println("⚡ Aplicando optimización nivel " + optLevel + "...");
+                    // parser.optimize(optLevel);
+                }
+
+                if (emitTir) {
+                    String name = (outputFile != null) ? outputFile + ".tir" : inputFile.replace(".mt", ".tir");
+                    parser.saveICGToFile(name);
+                }
+
+                if (emitAsm) {
+                    System.out.println("⚙ Generando ensamblador... (Fase Back-end)");
+                    // parser.generateAssembly(outputFile);
+                }
             } else {
                 System.out.println("✖ SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
                 for (CompilerError e : parser.errors) {
@@ -265,10 +359,6 @@ void Program() : {}
         }
     }
     <EOF>
-
-    {
-        if(errors.isEmpty()) printSymbolTable();
-    }
 }
 
 void ConfigBlock() : {}
@@ -452,6 +542,8 @@ void StateBlock() : { Token stateToken; }
                 } else {
                     definedStateBlocks.add(stateToken.image);
                 }
+
+                emit("LABEL", stateToken.image, "-", "-");
             }
             <PRODUCE>
             (TransitionBlock(stateToken.image))+
@@ -504,6 +596,13 @@ void TransitionBlock(String currentState) : { Token readSym, writeSym, dirToken,
                 if (!symbolTable.containsKey(nextState.image)) {
                     reportError("Semántico", "El estado de destino '" + nextState.image + "' no está declarado.", nextState);
                 }
+
+                String cond = readSym.image;
+
+                emit("READ",  cond,           "-",  currentState);
+                emit("PUT",   writeSym.image, cond, currentState);
+                emit("MOV",   dirToken.image, cond, currentState);
+                emit("GOTO",  nextState.image,cond, currentState);
             }
 
             (<COMMA>)? <RBRACE>
