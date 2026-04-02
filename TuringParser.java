@@ -122,6 +122,46 @@ public class TuringParser implements TuringParserConstants {
         warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
     }
 
+    public void optimize(int level) {
+        if (level <= 0) return;
+
+        if (level >= 1) {
+            List<Instruction> optimized = new ArrayList<>();
+            for (Instruction ins : intermediateCode) {
+                // Regla: No escribir si es el mismo símbolo que leímos
+                if (ins.op.equals("PUT") && ins.arg1.equals(ins.arg2)) continue;
+
+                // Regla: No mover si la dirección es S (Stay)
+                if (ins.op.equals("MOV") && ins.arg1.equals("S")) continue;
+
+                optimized.add(ins);
+            }
+            this.intermediateCode = optimized;
+        }
+
+        if (level >= 2) {
+            Set<String> reachedStates = new HashSet<>();
+
+            for(SymbolInfo s : symbolTable.values()) if(s.isInitial) reachedStates.add(s.name);
+
+            for (Instruction ins : intermediateCode) {
+                if (ins.op.equals("GOTO")) reachedStates.add(ins.arg1);
+            }
+
+            List<Instruction> optimized = new ArrayList<>();
+            boolean skipping = false;
+
+            for (Instruction ins : intermediateCode) {
+                if (ins.op.equals("LABEL")) {
+                    skipping = !reachedStates.contains(ins.arg1);
+                }
+                if (!skipping) optimized.add(ins);
+            }
+            this.intermediateCode = optimized;
+        }
+        System.out.println("Optimizaci\u00f3n -O" + level + " completada.");
+    }
+
     public void saveICGToFile(String filename) {
         try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
             for (Instruction ins : intermediateCode) {
@@ -140,9 +180,11 @@ public class TuringParser implements TuringParserConstants {
         System.out.println("  -tir          Generar c\u00f3digo intermedio (.tir)");
         System.out.println("  -S            Generar c\u00f3digo ensamblador (.asm)");
         System.out.println("  -st           Mostrar tabla de s\u00edmbolos en consola.");
-        System.out.println("  -O1           Activar optimizaci\u00f3n b\u00e1sica.");
+        System.out.println("  -O1           Optimizaci\u00f3n de mirilla");
+        System.out.println("  -O2           Optimizaci\u00f3n de flujo");
         System.out.println("  -v, --version Mostrar versi\u00f3n.");
         System.out.println("  -h, --help    Mostrar esta ayuda.");
+        System.out.println("  -?            Muestra ayuda");
     }
 
     public static void main(String[] args) {
@@ -155,11 +197,11 @@ public class TuringParser implements TuringParserConstants {
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "-h": case "--help":
+                case "-h": case "-?": case "--help":
                     showHelp(); return;
                 case "-v": case "--version":
-                    System.out.println("TuringMachine Compiler (TMC) v0.1.1-alpha");
-                    System.out.println("Marzo 2026");
+                    System.out.println("TuringMachine Compiler (TMC) v0.2.0-alpha");
+                    System.out.println("Abril 2026");
                     return;
                 case "-tir":
                     emitTir = true; break;
@@ -169,6 +211,8 @@ public class TuringParser implements TuringParserConstants {
                     showST = true; break;
                 case "-O1":
                     optLevel = 1; break;
+                case "-O2":
+                    optLevel = 2; break;
                 case "-o":
                     if (i + 1 < args.length) outputFile = args[++i];
                     break;
@@ -193,9 +237,7 @@ public class TuringParser implements TuringParserConstants {
                 if (showST) parser.printSymbolTable();
 
                 if (optLevel > 0) {
-                    // Aquí llamaríamos a tu futuro optimizador
-                    System.out.println("\u26a1 Aplicando optimizaci\u00f3n nivel " + optLevel + "...");
-                    // parser.optimize(optLevel);
+                    parser.optimize(optLevel);
                 }
 
                 if (emitTir) {
