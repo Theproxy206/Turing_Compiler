@@ -201,9 +201,17 @@ public class TuringParser implements TuringParserConstants {
             writer.println("    lea rax, [rip + blank_symbol]");
             writer.println("    mov byte ptr [rax], " + (int)blankChar);
 
+            boolean isFirstLabel = true;
+
             for (Instruction ins : intermediateCode) {
                 switch (ins.op) {
                     case "LABEL":
+                        if (!isFirstLabel) {
+                            writer.println("    mov rax, -2");
+                            writer.println("    jmp exit_logic");
+                        }
+                        isFirstLabel = false;
+
                         writer.println("\nstate_" + ins.arg1 + ":");
                         // CAMBIO: [rel ...] por [rip + ...]
                         writer.println("    mov byte ptr [rip + current_state_is_final], " + (symbolTable.get(ins.arg1).isFinal ? "1" : "0"));
@@ -234,6 +242,11 @@ public class TuringParser implements TuringParserConstants {
                         writer.println("    fallback_trans_" + ins.transId + ":");
                         break;
                 }
+            }
+
+            if (!isFirstLabel) {
+                writer.println("    mov rax, -2 # Codigo de error: Transicion no definida (Rechazo)");
+                writer.println("    jmp exit_logic");
             }
 
             for (SymbolInfo info : symbolTable.values()) {
@@ -331,7 +344,7 @@ public class TuringParser implements TuringParserConstants {
                 case "-h": case "-?": case "--help":
                     showHelp(); return;
                 case "-v": case "--version":
-                    System.out.println("TuringMachine Compiler (TMC) v0.2.0-alpha");
+                    System.out.println("TuringMachine Compiler (TMC) v1.0.0-beta");
                     System.out.println("Abril 2026");
                     return;
                 case "-tir":
