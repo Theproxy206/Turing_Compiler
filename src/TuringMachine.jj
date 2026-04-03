@@ -5,11 +5,11 @@ options {
 
 PARSER_BEGIN(TuringParser)
 import java.util.*;
-import java.io.PrintWriter;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 
 public class TuringParser {
+    int globalTransCounter = 0;
+
     public static class SymbolInfo {
         String name;
         String type; // "ESTADO" o "SÍMBOLO"
@@ -28,12 +28,14 @@ public class TuringParser {
         String arg1;  // Símbolo o Dirección
         String arg2;  // Condición (Símbolo leído)
         String state; // Estado actual
+        int transId;
 
-        public Instruction(String op, String arg1, String arg2, String state) {
+        public Instruction(String op, String arg1, String arg2, String state, int transId) {
             this.op = op;
             this.arg1 = arg1;
             this.arg2 = arg2;
             this.state = state;
+            this.transId = transId;
         }
 
         @Override
@@ -76,7 +78,7 @@ public class TuringParser {
     }
 
     private void emit(String op, String a1, String a2, String s) {
-        intermediateCode.add(new Instruction(op, a1, a2, s));
+        intermediateCode.add(new Instruction(op, a1, a2, s, globalTransCounter));
     }
 
     public static class CompilerError {
@@ -177,6 +179,91 @@ public class TuringParser {
         }
     }
 
+    public void generateLogicAsm(String outputFile) {
+        if (outputFile == null) outputFile = "logic.asm";
+
+        try (PrintWriter writer = new PrintWriter(new FileWriter(outputFile))) {
+            char blankChar = 'B';
+            for (SymbolInfo info : symbolTable.values()) {
+                if (info.isBlank) {
+                    blankChar = info.name.charAt(0);
+                    break;
+                }
+            }
+
+            // --- CABECERA PARA GNU AS (Sintaxis Intel) ---
+            writer.println(".intel_syntax noprefix"); // <--- CRITICO: Permite sintaxis Intel en 'as'
+            writer.println(".section .text");
+            writer.println(".global run_turing_logic");
+            writer.println(".extern step_counter, max_steps, current_state_is_final, blank_symbol");
+
+            writer.println("\nrun_turing_logic:");
+            writer.println("    push rbx");
+            writer.println("    mov rbx, rdi");
+
+            // Usamos la sintaxis de direccionamiento compatible con 'as'
+            writer.println("    lea rax, [rip + blank_symbol]");
+            writer.println("    mov byte ptr [rax], " + (int)blankChar);
+
+            for (Instruction ins : intermediateCode) {
+                switch (ins.op) {
+                    case "LABEL":
+                        writer.println("\nstate_" + ins.arg1 + ":");
+                        // CAMBIO: [rel ...] por [rip + ...]
+                        writer.println("    mov byte ptr [rip + current_state_is_final], " + (symbolTable.get(ins.arg1).isFinal ? "1" : "0"));
+                        break;
+
+                    case "READ":
+                        // CAMBIO: Añadimos 'ptr' y usamos [rip + ...]
+                        writer.println("    inc qword ptr [rip + step_counter]");
+                        writer.println("    mov rax, [rip + step_counter]");
+                        writer.println("    cmp rax, [rip + max_steps]");
+                        writer.println("    jg  exit_limit");
+
+                        writer.println("    cmp byte ptr [rbx], '" + ins.arg1 + "'");
+                        writer.println("    jne fallback_trans_" + ins.transId);
+                        break;
+
+                    case "PUT":
+                        writer.println("    mov byte ptr [rbx], '" + ins.arg1 + "'");
+                        break;
+
+                    case "MOV":
+                        if (ins.arg1.equals("R")) writer.println("    inc rbx");
+                        else if (ins.arg1.equals("L")) writer.println("    dec rbx");
+                        break;
+
+                    case "GOTO":
+                        writer.println("    jmp state_" + ins.arg1);
+                        writer.println("    fallback_trans_" + ins.transId + ":");
+                        break;
+                }
+            }
+
+            for (SymbolInfo info : symbolTable.values()) {
+                if (info.type.equals("ESTADO") && !definedStateBlocks.contains(info.name)) {
+                    writer.println("\nstate_" + info.name + ":");
+                    // USA ESTA LÍNEA:
+                    writer.println("    mov byte ptr [rip + current_state_is_final], " + (info.isFinal ? "1" : "0"));
+                    writer.println("    jmp exit_logic");
+                }
+            }
+
+            writer.println("\nexit_logic:");
+            writer.println("    pop rbx");
+            writer.println("    ret");
+
+            writer.println("\nexit_limit:");
+            // CAMBIO: Eliminamos acentos para evitar el error 0xc3
+            writer.println("    mov rax, -1");
+            writer.println("    jmp exit_logic");
+
+            System.out.println("Archivo logic.asm generado con éxito.");
+        } catch (IOException e) {
+            System.err.println("Error generando logic.asm: " + e.getMessage());
+        }
+    }
+
     private static void showHelp() {
         System.out.println("USO: java TuringParser <archivo.tm> [opciones]");
         System.out.println("\nOPCIONES:");
@@ -189,6 +276,50 @@ public class TuringParser {
         System.out.println("  -v, --version Mostrar versión.");
         System.out.println("  -h, --help    Mostrar esta ayuda.");
         System.out.println("  -?            Muestra ayuda");
+    }
+
+    private File extractRuntime() throws IOException {
+        File tempRuntime = File.createTempFile("tm_runtime", ".o");
+        tempRuntime.deleteOnExit();
+
+        // Busca el archivo 'runtime.o' dentro de los recursos del JAR
+        try (InputStream is = getClass().getResourceAsStream("/resources/runtime.o");
+             OutputStream os = new FileOutputStream(tempRuntime)) {
+            if (is == null) throw new IOException("No se encontró el motor (runtime.o) en los recursos.");
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            while ((bytesRead = is.read(buffer)) != -1) {
+                os.write(buffer, 0, bytesRead);
+            }
+        }
+        return tempRuntime;
+    }
+
+    private void buildBinary(String asmFileName, String finalOutputName) {
+        try {
+            System.out.println("🔨 Ensamblando y enlazando...");
+
+            // 1. Extraer el runtime.o que incluimos en el binario
+            File runtimeO = extractRuntime();
+
+            // 2. Ejecutar 'as' (Ensamblador del sistema)
+            String objFile = asmFileName.replace(".asm", ".o");
+            Process as = new ProcessBuilder("as", "--64", asmFileName, "-o", objFile).inheritIO().start();
+            if (as.waitFor() != 0) throw new Exception("Error en el ensamblado.");
+
+            // 3. Ejecutar 'ld' (Enlazador del sistema)
+            Process ld = new ProcessBuilder("ld", runtimeO.getAbsolutePath(), objFile, "-o", finalOutputName).inheritIO().start();
+            if (ld.waitFor() != 0) throw new Exception("Error en el enlazado.");
+
+            // Limpieza de archivos temporales
+            new File(asmFileName).delete();
+            new File(objFile).delete();
+
+            System.out.println("🚀 ¡Listo! Binario creado: " + finalOutputName);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error crítico al crear el ejecutable: " + e.getMessage());
+        }
     }
 
     public static void main(String[] args) {
@@ -250,8 +381,21 @@ public class TuringParser {
                 }
 
                 if (emitAsm) {
-                    System.out.println("⚙ Generando ensamblador... (Fase Back-end)");
-                    // parser.generateAssembly(outputFile);
+                    System.out.println("Generando back-end x86_64...");
+                    String asmName = (outputFile != null) ? outputFile + ".asm" : "logic.asm";
+                    parser.generateLogicAsm(asmName);
+                }
+
+                if (!emitTir && !emitAsm) {
+                    // Comportamiento por defecto: Crear ejecutable final
+                    String asmName = "temp_logic.asm";
+                    String binName = (outputFile != null) ? outputFile : "a.out"; // a.out es el estándar en Linux
+
+                    // 1. Generamos el .asm temporal
+                    parser.generateLogicAsm(asmName);
+
+                    // 2. Ensamblamos, enlazamos y borramos los temporales
+                    parser.buildBinary(asmName, binName);
                 }
             } else {
                 System.out.println("✖ SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
@@ -615,6 +759,9 @@ void TransitionBlock(String currentState) : { Token readSym, writeSym, dirToken,
 {
     try {
             <ON> readSym=<SYMBOL> <COLON> <LBRACE>
+            {
+                globalTransCounter++;
+            }
             <WRITE> <COLON> writeSym=<SYMBOL> <COMMA>
             <MOVE> <COLON> dirToken=<DIR> <COMMA>
             <NEXT> <COLON> nextState=<ID>

@@ -4,6 +4,7 @@ out/
 nbproject/private/
 build/
 dist/
+examples/
 
 *.class
 *.iml
