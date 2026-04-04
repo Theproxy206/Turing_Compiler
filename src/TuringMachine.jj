@@ -9,10 +9,54 @@ import java.io.*;
 
 public class TuringParser {
     int globalTransCounter = 0;
+    public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
+    public List<CompilerError> errors = new ArrayList<>();
+    public List<CompilerWarning> warnings = new ArrayList<>();
+    public Set<String> definedStateBlocks = new HashSet<>();
+    public Set<String> definedTransitions = new HashSet<>();
+    public List<Instruction> intermediateCode = new ArrayList<>();
+
+    public static class CompilerError {
+        String type;
+        String message;
+        int line;
+        int column;
+
+        public CompilerError(String type, String message, int line, int column) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+        }
+
+        @Override
+        public String toString() {
+            return "Error " + type + " en " + line + "," + column + ". " + message;
+        }
+    }
+
+    public static class CompilerWarning {
+        String type;
+        String message;
+        int line;
+        int column;
+
+        public CompilerWarning(String type, String message, int line, int column) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+        }
+
+        @Override
+        public String toString() {
+            return "Advertencia en " + line + "," + column + ". " + message;
+        }
+    }
 
     public static class SymbolInfo {
         String name;
-        String type; // "ESTADO" o "SÍMBOLO"
+        String type;
         public boolean isInitial = false;
         public boolean isFinal = false;
         public boolean isBlank = false;
@@ -24,10 +68,10 @@ public class TuringParser {
     }
 
     public static class Instruction {
-        String op;    // READ, WRITE, MOVE, GOTO, LABEL
-        String arg1;  // Símbolo o Dirección
-        String arg2;  // Condición (Símbolo leído)
-        String state; // Estado actual
+        String op;
+        String arg1;
+        String arg2;
+        String state;
         int transId;
 
         public Instruction(String op, String arg1, String arg2, String state, int transId) {
@@ -40,17 +84,66 @@ public class TuringParser {
 
         @Override
         public String toString() {
-            // Formato: OPERADOR arg1 arg2 state
             return String.format("%-8s %-6s %-6s %-6s", op, arg1, arg2, state);
         }
     }
 
-    public Map<String, SymbolInfo> symbolTable = new LinkedHashMap<>();
-    public List<CompilerError> errors = new ArrayList<>();
-    public List<CompilerWarning> warnings = new ArrayList<>();
-    public Set<String> definedStateBlocks = new HashSet<>();
-    public Set<String> definedTransitions = new HashSet<>();
-    public List<Instruction> intermediateCode = new ArrayList<>();
+    void recover(int... syncTokens) {
+        Token t = getToken(1);
+
+        if (t.kind == EOF || isKind(t.kind, syncTokens)) return;
+
+        while (true) {
+            getNextToken();
+            t = getToken(1);
+            if (t.kind == EOF || isKind(t.kind, syncTokens)) break;
+        }
+    }
+
+    boolean isKind(int kind, int[] kinds) {
+        for (int k : kinds) if (k == kind) return true;
+        return false;
+    }
+
+    void error_skip_config() {
+        Token t = getToken(1);
+
+        while (t.kind != EOF &&
+               t.kind != STATES &&
+               t.kind != SYMBOLS &&
+               t.kind != START &&
+               t.kind != BLANK &&
+               t.kind != FINALS &&
+               t.kind != RBRACE) {
+
+            getNextToken();
+            t = getToken(1);
+        }
+    }
+
+    private void reportError(String type, String message, Token t) {
+        errors.add(new CompilerError(type, message, t.beginLine, t.beginColumn));
+    }
+
+    private void reportWarning(String type, String message, Token t) {
+        warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
+    }
+
+    private static void showHelp() {
+        System.out.println("USO: turing <archivo.mt> [opciones]");
+        System.out.println("\nOPCIONES:");
+        System.out.println("  -o <nombre>   Especificar nombre del archivo de salida.");
+        System.out.println("  -tir          Generar código intermedio (.tir)");
+        System.out.println("  -S            Generar código ensamblador (.asm)");
+        System.out.println("  -st           Mostrar tabla de símbolos en consola.");
+        System.out.println("  -O1           Optimización de mirilla");
+        System.out.println("  -O2           Optimización de flujo");
+        System.out.println("  -v, --version Mostrar versión.");
+        System.out.println("  -h, --help    Mostrar esta ayuda.");
+        System.out.println("  -?            Muestra ayuda");
+    }
+
+    // Fase semántica
 
     private void registerSymbol(Token t, String type) {
         if (symbolTable.containsKey(t.image)) {
@@ -77,56 +170,24 @@ public class TuringParser {
         System.out.println("------------------------------------------------------------");
     }
 
+    // Generación de CI
+
     private void emit(String op, String a1, String a2, String s) {
         intermediateCode.add(new Instruction(op, a1, a2, s, globalTransCounter));
     }
 
-    public static class CompilerError {
-        String type;
-        String message;
-        int line;
-        int column;
-
-        public CompilerError(String type, String message, int line, int column) {
-            this.type = type;
-            this.message = message;
-            this.line = line;
-            this.column = column;
-        }
-
-        @Override
-        public String toString() {
-            // Se ajustó la puntuación para coincidir con tu formato exacto
-            return "Error " + type + " en " + line + "," + column + ". " + message;
+    public void saveICGToFile(String filename) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
+            for (Instruction ins : intermediateCode) {
+                writer.println(ins);
+            }
+            System.out.println("Archivo de código intermedio generado: " + filename);
+        } catch (IOException e) {
+            System.err.println("Error al escribir el archivo .tir: " + e.getMessage());
         }
     }
 
-    private void reportError(String type, String message, Token t) {
-        errors.add(new CompilerError(type, message, t.beginLine, t.beginColumn));
-    }
-
-    public static class CompilerWarning {
-        String type;
-        String message;
-        int line;
-        int column;
-
-        public CompilerWarning(String type, String message, int line, int column) {
-            this.type = type;
-            this.message = message;
-            this.line = line;
-            this.column = column;
-        }
-
-        @Override
-        public String toString() {
-            return "Advertencia en " + line + "," + column + ". " + message;
-        }
-    }
-
-    private void reportWarning(String type, String message, Token t) {
-        warnings.add(new CompilerWarning(type, message, t.beginLine, t.beginColumn));
-    }
+    // Optimización
 
     public void optimize(int level) {
         if (level <= 0) return;
@@ -134,10 +195,8 @@ public class TuringParser {
         if (level >= 1) {
             List<Instruction> optimized = new ArrayList<>();
             for (Instruction ins : intermediateCode) {
-                // Regla: No escribir si es el mismo símbolo que leímos
                 if (ins.op.equals("PUT") && ins.arg1.equals(ins.arg2)) continue;
 
-                // Regla: No mover si la dirección es S (Stay)
                 if (ins.op.equals("MOV") && ins.arg1.equals("S")) continue;
 
                 optimized.add(ins);
@@ -168,16 +227,7 @@ public class TuringParser {
         System.out.println("Optimización -O" + level + " completada.");
     }
 
-    public void saveICGToFile(String filename) {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
-            for (Instruction ins : intermediateCode) {
-                writer.println(ins);
-            }
-            System.out.println("✔ Archivo de código intermedio generado: " + filename);
-        } catch (IOException e) {
-            System.err.println("Error al escribir el archivo .tir: " + e.getMessage());
-        }
-    }
+    // Generación de Assembly
 
     public void generateLogicAsm(String outputFile) {
         if (outputFile == null) outputFile = "logic.asm";
@@ -191,8 +241,7 @@ public class TuringParser {
                 }
             }
 
-            // --- CABECERA PARA GNU AS (Sintaxis Intel) ---
-            writer.println(".intel_syntax noprefix"); // <--- CRITICO: Permite sintaxis Intel en 'as'
+            writer.println(".intel_syntax noprefix");
             writer.println(".section .text");
             writer.println(".global run_turing_logic");
             writer.println(".extern step_counter, max_steps, current_state_is_final, blank_symbol");
@@ -201,7 +250,6 @@ public class TuringParser {
             writer.println("    push rbx");
             writer.println("    mov rbx, rdi");
 
-            // Usamos la sintaxis de direccionamiento compatible con 'as'
             writer.println("    lea rax, [rip + blank_symbol]");
             writer.println("    mov byte ptr [rax], " + (int)blankChar);
 
@@ -217,12 +265,10 @@ public class TuringParser {
                         isFirstLabel = false;
 
                         writer.println("\nstate_" + ins.arg1 + ":");
-                        // CAMBIO: [rel ...] por [rip + ...]
                         writer.println("    mov byte ptr [rip + current_state_is_final], " + (symbolTable.get(ins.arg1).isFinal ? "1" : "0"));
                         break;
 
                     case "READ":
-                        // CAMBIO: Añadimos 'ptr' y usamos [rip + ...]
                         writer.println("    inc qword ptr [rip + step_counter]");
                         writer.println("    mov rax, [rip + step_counter]");
                         writer.println("    cmp rax, [rip + max_steps]");
@@ -249,14 +295,13 @@ public class TuringParser {
             }
 
             if (!isFirstLabel) {
-                writer.println("    mov rax, -2 # Codigo de error: Transicion no definida (Rechazo)");
+                writer.println("    mov rax, -2");
                 writer.println("    jmp exit_logic");
             }
 
             for (SymbolInfo info : symbolTable.values()) {
                 if (info.type.equals("ESTADO") && !definedStateBlocks.contains(info.name)) {
                     writer.println("\nstate_" + info.name + ":");
-                    // USA ESTA LÍNEA:
                     writer.println("    mov byte ptr [rip + current_state_is_final], " + (info.isFinal ? "1" : "0"));
                     writer.println("    jmp exit_logic");
                 }
@@ -267,7 +312,6 @@ public class TuringParser {
             writer.println("    ret");
 
             writer.println("\nexit_limit:");
-            // CAMBIO: Eliminamos acentos para evitar el error 0xc3
             writer.println("    mov rax, -1");
             writer.println("    jmp exit_logic");
 
@@ -277,25 +321,10 @@ public class TuringParser {
         }
     }
 
-    private static void showHelp() {
-        System.out.println("USO: java TuringParser <archivo.tm> [opciones]");
-        System.out.println("\nOPCIONES:");
-        System.out.println("  -o <nombre>   Especificar nombre del archivo de salida.");
-        System.out.println("  -tir          Generar código intermedio (.tir)");
-        System.out.println("  -S            Generar código ensamblador (.asm)");
-        System.out.println("  -st           Mostrar tabla de símbolos en consola.");
-        System.out.println("  -O1           Optimización de mirilla");
-        System.out.println("  -O2           Optimización de flujo");
-        System.out.println("  -v, --version Mostrar versión.");
-        System.out.println("  -h, --help    Mostrar esta ayuda.");
-        System.out.println("  -?            Muestra ayuda");
-    }
-
     private File extractRuntime() throws IOException {
         File tempRuntime = File.createTempFile("tm_runtime", ".o");
         tempRuntime.deleteOnExit();
 
-        // Busca el archivo 'runtime.o' dentro de los recursos del JAR
         try (InputStream is = getClass().getResourceAsStream("/resources/runtime.o");
              OutputStream os = new FileOutputStream(tempRuntime)) {
             if (is == null) throw new IOException("No se encontró el motor (runtime.o) en los recursos.");
@@ -310,28 +339,24 @@ public class TuringParser {
 
     private void buildBinary(String asmFileName, String finalOutputName) {
         try {
-            System.out.println("🔨 Ensamblando y enlazando...");
+            System.out.println("Ensamblando y enlazando...");
 
-            // 1. Extraer el runtime.o que incluimos en el binario
             File runtimeO = extractRuntime();
 
-            // 2. Ejecutar 'as' (Ensamblador del sistema)
             String objFile = asmFileName.replace(".asm", ".o");
             Process as = new ProcessBuilder("as", "--64", asmFileName, "-o", objFile).inheritIO().start();
             if (as.waitFor() != 0) throw new Exception("Error en el ensamblado.");
 
-            // 3. Ejecutar 'ld' (Enlazador del sistema)
             Process ld = new ProcessBuilder("ld", runtimeO.getAbsolutePath(), objFile, "-o", finalOutputName).inheritIO().start();
             if (ld.waitFor() != 0) throw new Exception("Error en el enlazado.");
 
-            // Limpieza de archivos temporales
             new File(asmFileName).delete();
             new File(objFile).delete();
 
-            System.out.println("🚀 ¡Listo! Binario creado: " + finalOutputName);
+            System.out.println("¡Listo! Binario creado: " + finalOutputName);
 
         } catch (Exception e) {
-            System.err.println("❌ Error crítico al crear el ejecutable: " + e.getMessage());
+            System.err.println("Error crítico al crear el ejecutable: " + e.getMessage());
         }
     }
 
@@ -380,7 +405,7 @@ public class TuringParser {
             parser.Program();
 
             if (parser.errors.isEmpty()) {
-                System.out.println("✔ COMPILACIÓN EXITOSA (0 errores)");
+                System.out.println("COMPILACIÓN EXITOSA (0 errores)");
 
                 if (showST) parser.printSymbolTable();
 
@@ -400,18 +425,15 @@ public class TuringParser {
                 }
 
                 if (!emitTir && !emitAsm) {
-                    // Comportamiento por defecto: Crear ejecutable final
                     String asmName = "temp_logic.asm";
                     String binName = (outputFile != null) ? outputFile : "a.out"; // a.out es el estándar en Linux
 
-                    // 1. Generamos el .asm temporal
                     parser.generateLogicAsm(asmName);
 
-                    // 2. Ensamblamos, enlazamos y borramos los temporales
                     parser.buildBinary(asmName, binName);
                 }
             } else {
-                System.out.println("✖ SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
+                System.out.println("SE ENCONTRARON " + parser.errors.size() + " ERRORES:");
                 for (CompilerError e : parser.errors) {
                     System.out.println(e);
                 }
@@ -427,41 +449,6 @@ public class TuringParser {
 
         } catch (Exception e) {
             System.out.println(e);
-        }
-    }
-
-    /* ================= RECUPERACIÓN ================= */
-
-    void recover(int... syncTokens) {
-        Token t = getToken(1);
-
-        if (t.kind == EOF || isKind(t.kind, syncTokens)) return;
-
-        while (true) {
-            getNextToken();
-            t = getToken(1);
-            if (t.kind == EOF || isKind(t.kind, syncTokens)) break;
-        }
-    }
-
-    boolean isKind(int kind, int[] kinds) {
-        for (int k : kinds) if (k == kind) return true;
-        return false;
-    }
-
-    void error_skip_config() {
-        Token t = getToken(1);
-
-        while (t.kind != EOF &&
-               t.kind != STATES &&
-               t.kind != SYMBOLS &&
-               t.kind != START &&
-               t.kind != BLANK &&
-               t.kind != FINALS &&
-               t.kind != RBRACE) {
-
-            getNextToken();
-            t = getToken(1);
         }
     }
 }
@@ -503,7 +490,6 @@ TOKEN : {
 TOKEN : { < ID: ["a"-"z"] (["a"-"z","0"-"9","_"])* > }
 TOKEN : { < NAME: ["a"-"z","A"-"Z"] (["a"-"z","A"-"Z","0"-"9","_"])*> }
 
-// Token comodín para atrapar errores léxicos
 TOKEN : { < UNEXPECTED_CHAR: ~[] > }
 
 /* ================= SINTÁCTICO ================= */
@@ -847,7 +833,6 @@ void SymbolsList(String type) : { Token t; }
     <RBRACKET>
 }
 
-// Especial para marcar estados finales
 void FinalIdList() : { Token t; }
 {
     <LBRACKET>
