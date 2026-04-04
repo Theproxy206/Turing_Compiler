@@ -8,3 +8,4 @@ dist/
 *.class
 *.iml
 *.jar
+*.o

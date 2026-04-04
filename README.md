@@ -13,48 +13,87 @@ Está diseñado para detectar errores lógicos comunes (como el no-determinismo 
 > 📚 ¿Nuevo en esto? Si quieres profundizar en los fundamentos teóricos, te recomendamos leer sobre la [Máquina de Turing en Wikipedia](https://es.wikipedia.org/wiki/M%C3%A1quina_de_Turing) o consultar la [Stanford Encyclopedia of Philosophy](https://plato.stanford.edu/entries/turing-machine/).
 
 ## 🛠️ Instalación y Uso
-Requisitos
 
-> Java Development Kit (JDK) 8 o superior.
+Descarga la última versión del compilador desde la sección Releases y extrae el archivo `.tar.gz`
 
-## Compilación
-
-Para compilar todos los componentes del parser y las clases auxiliares, ejecuta desde la raíz del proyecto:
-Bash
+Instala el compilador en tu sistema ejecutando el script incluido:
 
 ```shell
-javac *.java
+sh install.sh
+```
+
+O si prefieres la instalación manual:
+
+```shell
+# Mueve el binario al PATH
+sudo cp turing /usr/local/bin/
+
+# Instala las paginas del manual
+sudo cp turing.1.gz /usr/share/man/man1/
+sudo mandb
 ```
 
 ## Ejecución
 
-Puedes ejecutar el compilador de dos formas:
+Para ejecutar el compilador ejecuta el siguiente comando:
 
-Modo Archivo (Recomendado):
 ```shell
-java TuringParser mi_archivo.mt
+turing MiArchivo.mt -o maquina.out
 ```
 
-Modo Consola (Interactivo):
+> Puedes ver los parámetros del compilador de la siguiente manera:
+> ```shell
+> turing -h
+> ```
+
+## Ejecutando el binario
+
+El binario acepta un archivo de texto con la cinta inicial. 
+También puedes definir un límite máximo de pasos para evitar ciclos infinitos (por defecto son 100).
+
 ```shell
-java TuringParser
+./maquina.out cinta.txt [limite_pasos]
 ```
->(Presiona Ctrl+D o Ctrl+Z al finalizar para procesar la entrada).
 
 ## 📝 Overview de Sintaxis
 
 El lenguaje se divide en tres secciones principales:
 
-- Declaración: machine NombreMaquina:
-- Configuración: Bloque config { ... } donde se definen estados, alfabeto, estado inicial y símbolo blanco.
-- Transiciones: Bloques state -> on { ... }; que definen el comportamiento de la máquina.
+> Declaración
+> ```
+> machine NombreMaquina:
+> end
+> ```
+> 
+> Definición
+> ```
+> config {
+>   states: [q0, q1, q_final],
+>   symbols: [0, 1, X, B],
+>   start: q0,
+>   blank: B,
+>   finals: [q_final]
+> }
+> ```
+> 
+> Transiciones
+> ```
+> state q0 -> 
+>   on 0: {
+>       write: 1,
+>       move: R,
+>       next: q1
+>   }
+> ;
+> ```
 
 ## 📂 Programas de Ejemplo
 
-En la carpeta del repositorio encontrarás tres archivos clave para probar el compilador:
+En la carpeta `examples/` encontrarás cuatro archivos `.mt` y sus cintas para probar el compilador:
 
 - DuplicarUnos.mt
 - ComplementoUno.mt
+- Palindromo.mt
 - Errores.mt
 
 ### El caso de Errores.mt
